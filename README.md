@@ -56,7 +56,7 @@ flutter run -d windows             # 개발 실행
 flutter build windows --release    # 배포용 빌드
 ```
 
-결과물은 `build\windows\x64\runner\Release\`에 생깁니다. 이 폴더 전체(`pdf_desk.exe`, `pdfium.dll`, `data\` 등)를 복사하면 다른 PC에서도 실행됩니다.
+결과물은 `build\windows\x64\runner\Release\`에 생깁니다. 이 폴더 전체(`pdf_desk.exe`, `pdfium.dll`, `msvcp140.dll`, `vcruntime140*.dll`, `data\` 등)를 복사하면 다른 PC에서도 실행됩니다. Visual C++ 런타임 DLL이 함께 들어가므로 대상 PC에 재배포 패키지를 설치할 필요가 없습니다.
 ARM64 PC에서 빌드하면 ARM64용이 만들어집니다.
 
 GitHub에 올리면 `.github/workflows/build-windows.yml`이 자동으로 x64 빌드를 만듭니다.
