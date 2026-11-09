@@ -27,6 +27,14 @@ Future<void> settle(WidgetTester tester, [int rounds = 8]) async {
   }
 }
 
+/// Like [settle], but keeps going until [finder] matches (or gives up).
+Future<void> settleUntil(WidgetTester tester, Finder finder, {int maxRounds = 400}) async {
+  for (var i = 0; i < maxRounds && finder.evaluate().isEmpty; i++) {
+    await settle(tester, 1);
+  }
+  await settle(tester, 4);
+}
+
 void main() {
   late Directory tmp;
   late Settings settings;
@@ -102,6 +110,35 @@ void main() {
     await settle(tester);
     await tester.pump(const Duration(seconds: 1)); // route transition
     expect(find.byType(AnnotatedPage), findsNothing);
+    expect(find.text('2개 항목 · 1개 선택'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+
+    // 펼치기: Alpha (2 pages) is dealt out as two sheets.
+    await tester.tap(find.text('펼치기'));
+    await settleUntil(tester, find.text('3개 항목 · 2개 선택'));
+    expect(find.text('Alpha_01'), findsOneWidget);
+    expect(find.text('Alpha_02'), findsOneWidget);
+    expect(find.text('3개 항목 · 2개 선택'), findsOneWidget);
+
+    // Band-select both sheets by dragging over the desk; a quick-action bar
+    // appears next to them.
+    await tester.tap(find.text('Beta'));
+    await tester.pump();
+    final r1 = tester.getRect(find.text('Alpha_01')), r2 = tester.getRect(find.text('Alpha_02'));
+    final from = Offset(r1.left - 12, r1.top - 260);
+    final band = await tester.startGesture(from);
+    await band.moveTo(from + const Offset(20, 20));
+    await band.moveTo(Offset(r2.right + 10, r2.bottom + 10));
+    await band.up();
+    await tester.pump();
+    expect(find.text('3개 항목 · 2개 선택'), findsOneWidget);
+    expect(find.text('2개 선택'), findsOneWidget);
+
+    // 겹치기 from the quick-action bar puts them back into one document.
+    await tester.tap(find.descendant(of: find.byType(TextButton), matching: find.text('겹치기')));
+    await settleUntil(tester, find.text('2개 항목 · 1개 선택'));
+    expect(find.text('Alpha_01'), findsOneWidget);
+    expect(find.text('Alpha_02'), findsNothing);
     expect(find.text('2개 항목 · 1개 선택'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });

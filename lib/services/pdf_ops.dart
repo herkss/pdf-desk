@@ -167,6 +167,25 @@ Future<String> combine(List<String> entries, String folder, String name) async {
   return out;
 }
 
+/// 겹치기: appends the pages of [sources] (documents or binders) to the end of
+/// [target] in place and removes the sources, like dropping sheets onto a
+/// pile on a real desk.
+Future<void> stackOnto(String target, List<String> sources) async {
+  final others = sources.where((s) => s != target).toList();
+  if (others.isEmpty) return;
+  await assembleTo([...await allPages(target), for (final s in others) ...await pagesOfEntry(s)], target);
+  for (final s in others) {
+    await deleteDocument(s);
+  }
+}
+
+/// 펼치기: replaces a multi-page document with one document per page.
+Future<List<String>> spreadPages(String path, String folder) async {
+  final outs = await splitPages(path, folder);
+  await deleteDocument(path);
+  return outs;
+}
+
 /// 분할: one document per page.
 Future<List<String>> splitPages(String path, String folder) async {
   final n = await pageCountOf(path);

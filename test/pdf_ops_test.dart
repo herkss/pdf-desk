@@ -90,6 +90,26 @@ void main() {
     expect((await loadAnnotations(parts[0])).length, 0);
   });
 
+  test('stacking onto a document and spreading it back out', () async {
+    final dir = await Directory(p.join(tmp.path, 'stack')).create();
+    final a = await makePdf(dir.path, 'S', ['S1']);
+    final b = await makePdf(dir.path, 'T', ['T1', 'T2']);
+    await saveAnnotations(b, [
+      Annotation(type: AnnotationType.rect, page: 1, points: [const Offset(10, 20), const Offset(110, 70)]),
+    ]);
+
+    await ops.stackOnto(a, [b]);
+    expect(await pageTexts(a), ['S1', 'T1', 'T2']);
+    expect(File(b).existsSync(), isFalse);
+    expect((await loadAnnotations(a)).single.page, 2);
+
+    final sheets = await ops.spreadPages(a, dir.path);
+    expect(File(a).existsSync(), isFalse);
+    expect([for (final s in sheets) p.basename(s)], ['S_01.pdf', 'S_02.pdf', 'S_03.pdf']);
+    expect(await pageTexts(sheets[2]), ['T2']);
+    expect((await loadAnnotations(sheets[2])).single.page, 0);
+  });
+
   test('flatten burns annotations into page content', () async {
     final a = await makePdf(tmp.path, 'F', ['Page']);
     await saveAnnotations(a, [

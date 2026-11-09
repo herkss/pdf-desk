@@ -107,6 +107,89 @@ class DeskActions {
     await _done();
   }
 
+  /// 펼치기: deals documents out as one sheet per page, each document on its
+  /// own row starting where the first one lay. Binders are unbound the same
+  /// way. 겹치기 puts sheets back together.
+  Future<void> spread([DeskEntry? entry]) async {
+    final list = entry != null ? [entry] : _sel;
+    if (list.isEmpty) {
+      showInfo(context, '펼칠 문서를 선택하세요.');
+      return;
+    }
+    final origin = list.map(desk.positionOf).reduce((a, b) => a.dy < b.dy || (a.dy == b.dy && a.dx < b.dx) ? a : b);
+    final groups = await runBusy(context, '낱장으로 펼치는 중…', () async {
+      final groups = <List<String>>[];
+      for (final e in list) {
+        if (e.isBinder) {
+          groups.add(await ops.unbind(e.path));
+        } else if (await ops.pageCountOf(e.path) > 1) {
+          groups.add(await ops.spreadPages(e.path, desk.folder));
+        }
+      }
+      return groups;
+    });
+    if (groups == null) return;
+    if (groups.isEmpty) {
+      if (context.mounted) showInfo(context, '한 장짜리 문서는 펼칠 수 없습니다.');
+      return;
+    }
+    desk.placeSpreadRows(groups, origin);
+    await _done();
+    desk.selectPaths([for (final g in groups) ...g]);
+  }
+
+  /// Lays documents printed to the "PDF Desk" printer on the desk, spread out
+  /// one sheet per page if the user chose so.
+  Future<void> receivePrinted(List<String> paths) async {
+    final placed = <String>[];
+    try {
+      for (final path in paths) {
+        desk.place([path]);
+        if (desk.settings.spreadPrinted && await ops.pageCountOf(path) > 1) {
+          final origin = desk.positionOf(DeskEntry(path));
+          final sheets = await ops.spreadPages(path, p.dirname(path));
+          desk.placeSpread(sheets, origin);
+          placed.addAll(sheets);
+        } else {
+          placed.add(path);
+        }
+      }
+    } catch (e) {
+      if (context.mounted) showError(context, e);
+    }
+    await _done();
+    desk.selectPaths(placed);
+    if (context.mounted && paths.isNotEmpty) {
+      showInfo(context, paths.length == 1 ? '인쇄한 문서를 데스크에 놓았습니다.' : '인쇄한 문서 ${paths.length}개를 데스크에 놓았습니다.');
+    }
+  }
+
+  /// 겹치기: puts [sources] on [target] — their pages are appended to it.
+  /// Dropping onto a binder adds them to the binder instead.
+  Future<void> stackOnto(DeskEntry target, List<String> sources) async {
+    if (target.isBinder) {
+      await addToBinder(target, sources);
+      return;
+    }
+    final r = await runBusy(context, '문서를 겹치는 중…', () async {
+      await ops.stackOnto(target.path, sources);
+      return true;
+    });
+    if (r == null) return;
+    await _done();
+    desk.selectOnly(target);
+  }
+
+  /// 겹치기 for the selection: everything goes onto the first selected item.
+  Future<void> stackSelection() async {
+    final list = _sel;
+    if (list.length < 2) {
+      showInfo(context, '겹칠 문서를 2개 이상 선택하세요.');
+      return;
+    }
+    await stackOnto(list.first, [for (final e in list.skip(1)) e.path]);
+  }
+
   Future<bool?> _askKeepOriginals(String verb) => showDialog<bool>(
     context: context,
     builder: (context) => AlertDialog(
@@ -152,10 +235,12 @@ class DeskActions {
       showInfo(context, '해제할 바인더를 선택하세요.');
       return;
     }
+    final origin = desk.positionOf(e);
     final outs = await runBusy(context, '바인더를 해제하는 중…', () => ops.unbind(e.path));
     if (outs == null) return;
-    desk.place(outs, at: desk.positionOf(e));
+    desk.placeSpread(outs, origin);
     await _done();
+    desk.selectPaths(outs);
   }
 
   Future<void> rotate(int quarterTurns) async {

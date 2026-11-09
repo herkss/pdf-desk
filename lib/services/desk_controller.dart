@@ -50,6 +50,13 @@ class DeskController extends ChangeNotifier {
     return entries.where((e) => e.title.toLowerCase().contains(f)).toList();
   }
 
+  /// [visibleEntries] from bottom to top of the pile. Documents may overlap
+  /// like paper on a desk; the order of [DeskLayout.positions] is the z-order.
+  List<DeskEntry> get stackedEntries {
+    final z = {for (final (i, k) in layout.positions.keys.indexed) k: i};
+    return visibleEntries.toList()..sort((a, b) => (z[a.fileName] ?? 0).compareTo(z[b.fileName] ?? 0));
+  }
+
   Future<void> openFolder(String path) async {
     await _flushLayout();
     folder = path;
@@ -136,11 +143,52 @@ class DeskController extends ChangeNotifier {
     var cursor = at;
     for (final path in paths) {
       final name = p.basename(path);
+      layout.positions.remove(name);
       final pos = cursor == null ? _nextFreeSlot() : _nextFreeSlot(near: cursor);
       layout.positions[name] = pos;
       cursor = pos;
     }
     _scheduleLayoutSave();
+  }
+
+  /// Lays [paths] (the sheets of a spread document) out side by side starting
+  /// at [origin], on top of whatever is already there.
+  void placeSpread(List<String> paths, Offset origin) => placeSpreadRows([paths], origin);
+
+  /// Like [placeSpread] for several documents: each one starts a new row.
+  void placeSpreadRows(List<List<String>> groups, Offset origin) {
+    final step = gridStep;
+    final maxCols = math.max(1, (1100 / step.width).floor());
+    var row = 0;
+    for (final paths in groups) {
+      for (var i = 0; i < paths.length; i++) {
+        final name = p.basename(paths[i]);
+        layout.positions.remove(name);
+        layout.positions[name] = origin + Offset((i % maxCols) * step.width, (row + i ~/ maxCols) * step.height);
+      }
+      row += (paths.length + maxCols - 1) ~/ maxCols;
+    }
+    _scheduleLayoutSave();
+  }
+
+  /// Puts [paths] on top of the pile, keeping their relative order.
+  void bringToFront(List<String> paths) {
+    final names = [for (final s in paths) p.basename(s)];
+    final keys = layout.positions.keys.toList();
+    if (keys.length >= names.length && _listEquals(keys.sublist(keys.length - names.length), names)) return;
+    for (final n in names) {
+      final pos = layout.positions.remove(n);
+      if (pos != null) layout.positions[n] = pos;
+    }
+    _scheduleLayoutSave();
+    notifyListeners();
+  }
+
+  static bool _listEquals(List<String> a, List<String> b) {
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
   }
 
   // --- selection ---------------------------------------------------------
@@ -167,13 +215,27 @@ class DeskController extends ChangeNotifier {
     notifyListeners();
   }
 
+  void selectPaths(List<String> paths) {
+    selection
+      ..clear()
+      ..addAll(paths.where((s) => entries.any((e) => e.path == s)));
+    notifyListeners();
+  }
+
   void selectInRect(Rect r, {Set<String> keep = const {}}) {
     selection
       ..clear()
       ..addAll(keep);
-    for (final e in visibleEntries) {
-      if (rectOf(e).overlaps(r) && !selection.contains(e.path)) selection.add(e.path);
-    }
+    // In reading order on the desk (rows top to bottom, then left to right),
+    // so 겹치기 on a band selection follows the layout.
+    final rowH = itemSize.height / 2;
+    final hits = visibleEntries.where((e) => rectOf(e).overlaps(r) && !selection.contains(e.path)).toList()
+      ..sort((a, b) {
+        final pa = positionOf(a), pb = positionOf(b);
+        final row = (pa.dy / rowH).floor().compareTo((pb.dy / rowH).floor());
+        return row != 0 ? row : pa.dx.compareTo(pb.dx);
+      });
+    selection.addAll(hits.map((e) => e.path));
     notifyListeners();
   }
 
@@ -229,8 +291,12 @@ class DeskController extends ChangeNotifier {
   }
 
   void renamePosition(String oldPath, String newPath) {
-    final pos = layout.positions.remove(p.basename(oldPath));
-    if (pos != null) layout.positions[p.basename(newPath)] = pos;
+    // Rebuild the map so the renamed document keeps its place in the pile.
+    final oldName = p.basename(oldPath), newName = p.basename(newPath);
+    final entries = layout.positions.entries.toList();
+    layout.positions
+      ..clear()
+      ..addEntries([for (final e in entries) e.key == oldName ? MapEntry(newName, e.value) : e]);
   }
 
   void _scheduleLayoutSave() {

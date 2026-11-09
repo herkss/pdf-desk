@@ -6,8 +6,10 @@ import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 
 import '../../services/desk_controller.dart';
+import '../../services/print_inbox.dart';
 import '../../services/settings.dart';
 import '../../services/storage.dart';
+import '../../services/virtual_printer.dart';
 import '../common/dialogs.dart';
 import '../common/toolbar.dart';
 import 'desk_actions.dart';
@@ -26,6 +28,7 @@ class _DeskScreenState extends State<DeskScreen> {
   late final desk = DeskController(widget.settings);
   final _focus = FocusNode();
   final _search = TextEditingController();
+  late final PrintInbox _inbox;
   double _treeWidth = 220;
   int _treeKey = 0;
 
@@ -42,10 +45,18 @@ class _DeskScreenState extends State<DeskScreen> {
         ? s.lastFolder
         : s.rootPath;
     desk.openFolder(start);
+    _inbox = PrintInbox(
+      s.inboxPath,
+      deskFolder: () => desk.folder,
+      onReceived: (paths) async {
+        if (mounted) await _actions(context).receivePrinted(paths);
+      },
+    )..start();
   }
 
   @override
   void dispose() {
+    _inbox.stop();
     desk.dispose();
     _focus.dispose();
     _search.dispose();
@@ -64,6 +75,7 @@ class _DeskScreenState extends State<DeskScreen> {
     final label = TextEditingController(text: s.stampLabel);
     final name = TextEditingController(text: s.stampName);
     var root = s.rootPath;
+    var spreadPrinted = s.spreadPrinted;
     final ok = await showDialog<bool>(
       context: context,
       builder: (context) => StatefulBuilder(
@@ -99,6 +111,24 @@ class _DeskScreenState extends State<DeskScreen> {
                   controller: name,
                   decoration: const InputDecoration(labelText: '이름'),
                 ),
+                const SizedBox(height: 16),
+                const Text('PDF Desk 프린터', style: TextStyle(fontWeight: FontWeight.w600)),
+                const SizedBox(height: 4),
+                const Text(
+                  "다른 프로그램에서 'PDF Desk' 프린터로 인쇄하면 문서가 이 데스크에 바로 놓입니다.",
+                  style: TextStyle(fontSize: 12.5, color: Colors.black54),
+                ),
+                _PrinterSetup(settings: s),
+                RadioGroup<bool>(
+                  groupValue: spreadPrinted,
+                  onChanged: (v) => setLocal(() => spreadPrinted = v ?? false),
+                  child: const Column(
+                    children: [
+                      RadioListTile(dense: true, value: false, title: Text('인쇄물을 한 문서로 놓기')),
+                      RadioListTile(dense: true, value: true, title: Text('인쇄물을 낱장으로 펼쳐 놓기')),
+                    ],
+                  ),
+                ),
               ],
             ),
           ),
@@ -112,6 +142,7 @@ class _DeskScreenState extends State<DeskScreen> {
     if (ok != true) return;
     s.stampLabel = label.text;
     s.stampName = name.text;
+    s.spreadPrinted = spreadPrinted;
     final rootChanged = root != s.rootPath;
     s.rootPath = root;
     await s.save();
@@ -144,6 +175,7 @@ class _DeskScreenState extends State<DeskScreen> {
       body: Builder(
         builder: (context) => Column(
           children: [
+            _menuBar(context),
             _toolbar(context),
             const Divider(height: 1),
             Expanded(
@@ -192,6 +224,113 @@ class _DeskScreenState extends State<DeskScreen> {
     );
   }
 
+  /// Classic Windows-style menu bar; every command is also on the toolbar or
+  /// a context menu.
+  Widget _menuBar(BuildContext context) {
+    final a = _actions(context);
+    MenuItemButton item(String label, VoidCallback? onPressed, {MenuSerializableShortcut? shortcut}) =>
+        MenuItemButton(onPressed: onPressed, shortcut: shortcut, child: Text(label));
+    return ListenableBuilder(
+      listenable: desk,
+      builder: (context, _) {
+        final sel = desk.selectedEntries;
+        final any = sel.isNotEmpty, one = sel.length == 1, multi = sel.length > 1;
+        final docs = sel.where((e) => !e.isBinder).isNotEmpty;
+        return Container(
+          color: const Color(0xFFFAFBFC),
+          child: Row(
+            children: [
+              MenuBar(
+                style: const MenuStyle(
+                  elevation: WidgetStatePropertyAll(0),
+                  backgroundColor: WidgetStatePropertyAll(Color(0xFFFAFBFC)),
+                  padding: WidgetStatePropertyAll(EdgeInsets.zero),
+                ),
+                children: [
+                  SubmenuButton(
+                    menuChildren: [
+                      item(
+                        '파일 가져오기…',
+                        () => a.importFiles(),
+                        shortcut: const SingleActivator(LogicalKeyboardKey.keyO, control: true),
+                      ),
+                      item('새 폴더', _newFolder),
+                      const Divider(height: 1),
+                      item('PDF로 내보내기 (주석 포함)…', any ? () => a.exportPdf() : null),
+                      item(
+                        '인쇄…',
+                        any ? () => a.printDocs() : null,
+                        shortcut: const SingleActivator(LogicalKeyboardKey.keyP, control: true),
+                      ),
+                      const Divider(height: 1),
+                      item('탐색기에서 열기', () => a.revealInExplorer()),
+                      item('환경 설정…', _settingsDialog),
+                    ],
+                    child: const Text('파일'),
+                  ),
+                  SubmenuButton(
+                    menuChildren: [
+                      item(
+                        '모두 선택',
+                        desk.selectAll,
+                        shortcut: const SingleActivator(LogicalKeyboardKey.keyA, control: true),
+                      ),
+                      item(
+                        '복제',
+                        any ? a.duplicate : null,
+                        shortcut: const SingleActivator(LogicalKeyboardKey.keyD, control: true),
+                      ),
+                      item(
+                        '이름 바꾸기',
+                        one ? () => a.rename() : null,
+                        shortcut: const SingleActivator(LogicalKeyboardKey.f2),
+                      ),
+                      item('삭제', any ? a.delete : null, shortcut: const SingleActivator(LogicalKeyboardKey.delete)),
+                    ],
+                    child: const Text('편집'),
+                  ),
+                  SubmenuButton(
+                    menuChildren: [
+                      item(
+                        '열기',
+                        one ? () => a.open() : null,
+                        shortcut: const SingleActivator(LogicalKeyboardKey.enter),
+                      ),
+                      const Divider(height: 1),
+                      item('겹치기', multi ? a.stackSelection : null),
+                      item('낱장으로 펼치기', any ? () => a.spread() : null),
+                      item('새 문서로 묶기…', multi ? () => a.combine() : null),
+                      item('페이지별로 분할 (원본 유지)…', one && !sel.first.isBinder ? () => a.split() : null),
+                      const Divider(height: 1),
+                      item('바인더 만들기…', any ? () => a.makeBinder() : null),
+                      item('바인더 해제', one && sel.first.isBinder ? () => a.unbind() : null),
+                      const Divider(height: 1),
+                      item('왼쪽으로 회전', docs ? () => a.rotate(3) : null),
+                      item('오른쪽으로 회전', docs ? () => a.rotate(1) : null),
+                    ],
+                    child: const Text('문서'),
+                  ),
+                  SubmenuButton(
+                    menuChildren: [
+                      item('이름순으로 정렬', () => desk.arrange(SortMode.name)),
+                      item('수정일순으로 정렬', () => desk.arrange(SortMode.modified)),
+                      const Divider(height: 1),
+                      item('크게 보기', () => desk.setThumbWidth((desk.thumbWidth * 1.2).clamp(70.0, 400.0))),
+                      item('작게 보기', () => desk.setThumbWidth((desk.thumbWidth / 1.2).clamp(70.0, 400.0))),
+                      const Divider(height: 1),
+                      item('새로 고침', desk.refresh, shortcut: const SingleActivator(LogicalKeyboardKey.f5)),
+                    ],
+                    child: const Text('표시'),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   Widget _toolbar(BuildContext context) {
     final a = _actions(context);
     return ListenableBuilder(
@@ -206,11 +345,23 @@ class _DeskScreenState extends State<DeskScreen> {
             ToolButton(icon: Icons.create_new_folder_outlined, label: '새 폴더', onPressed: _newFolder),
             const ToolSeparator(),
             ToolButton(icon: Icons.menu_book_outlined, label: '열기', onPressed: one ? () => a.open() : null),
-            ToolButton(icon: Icons.layers_outlined, label: '묶기', onPressed: sel.length > 1 ? () => a.combine() : null),
             ToolButton(
-              icon: Icons.call_split,
-              label: '분할',
-              onPressed: one && !sel.first.isBinder ? () => a.split() : null,
+              icon: Icons.layers_outlined,
+              label: '겹치기',
+              tooltip: '선택한 문서를 첫 문서 뒤에 겹쳐 하나로 만듭니다 (문서를 다른 문서 위에 끌어다 놓아도 됩니다)',
+              onPressed: sel.length > 1 ? a.stackSelection : null,
+            ),
+            ToolButton(
+              icon: Icons.view_carousel_outlined,
+              label: '펼치기',
+              tooltip: '문서를 한 장씩 낱장으로 데스크에 펼칩니다',
+              onPressed: sel.isNotEmpty ? () => a.spread() : null,
+            ),
+            ToolButton(
+              icon: Icons.note_add_outlined,
+              label: '새로 묶기',
+              tooltip: '선택한 문서들로 새 문서를 만듭니다',
+              onPressed: sel.length > 1 ? () => a.combine() : null,
             ),
             ToolButton(
               icon: Icons.collections_bookmark_outlined,
@@ -318,4 +469,83 @@ class _DeskScreenState extends State<DeskScreen> {
       ),
     ),
   );
+}
+
+/// Install/remove buttons for the "PDF Desk" printer, with its current state.
+class _PrinterSetup extends StatefulWidget {
+  const _PrinterSetup({required this.settings});
+  final Settings settings;
+
+  @override
+  State<_PrinterSetup> createState() => _PrinterSetupState();
+}
+
+class _PrinterSetupState extends State<_PrinterSetup> {
+  bool? _installed;
+  bool _working = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _check();
+  }
+
+  Future<void> _check() async {
+    final v = await VirtualPrinter.isInstalled();
+    if (mounted) setState(() => _installed = v);
+  }
+
+  Future<void> _run(bool install) async {
+    setState(() => _working = true);
+    final out = printerOutputFile(widget.settings.inboxPath);
+    final err = install ? await VirtualPrinter.install(out) : await VirtualPrinter.uninstall(out);
+    if (!mounted) return;
+    setState(() => _working = false);
+    if (err != null) {
+      showInfo(context, err);
+    } else {
+      showInfo(context, install ? "'PDF Desk' 프린터를 설치했습니다." : "'PDF Desk' 프린터를 제거했습니다.");
+    }
+    await _check();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!VirtualPrinter.supported) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 6),
+        child: Text('Windows에서만 사용할 수 있습니다.', style: TextStyle(fontSize: 12.5)),
+      );
+    }
+    final installed = _installed;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        children: [
+          Icon(
+            installed == true ? Icons.check_circle : Icons.print_disabled_outlined,
+            size: 18,
+            color: installed == true ? Colors.green : Colors.black45,
+          ),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              installed == null
+                  ? '확인 중…'
+                  : installed
+                  ? '설치됨'
+                  : '설치되지 않음',
+              style: const TextStyle(fontSize: 13),
+            ),
+          ),
+          if (_working)
+            const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+          else if (installed == true)
+            TextButton(onPressed: () => _run(false), child: const Text('제거'))
+          else if (installed == false)
+            FilledButton.tonal(onPressed: () => _run(true), child: const Text('설치 (관리자 권한)')),
+        ],
+      ),
+    );
+  }
 }

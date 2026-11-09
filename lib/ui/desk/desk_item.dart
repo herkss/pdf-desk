@@ -1,13 +1,23 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../../services/desk_controller.dart';
 import '../../services/thumbnails.dart';
 import '../common/annotation_painter.dart';
 
-/// First-page thumbnail of a document or binder with its annotations.
+const _pageShadow = [BoxShadow(color: Color(0x55000000), blurRadius: 3, offset: Offset(1.5, 1.5))];
+
+/// First-page thumbnail of a document or binder with its annotations, drawn
+/// as a sheet of paper. With [stacked], a multi-page document shows the
+/// edges of the sheets underneath, like a pile on a desk.
 class ThumbnailView extends StatefulWidget {
-  const ThumbnailView({super.key, required this.path});
+  const ThumbnailView({super.key, required this.path, this.stacked = false});
   final String path;
+  final bool stacked;
+
+  /// Gap between the edges of stacked sheets.
+  static const sheetGap = 3.0;
 
   @override
   State<ThumbnailView> createState() => _ThumbnailViewState();
@@ -50,38 +60,80 @@ class _ThumbnailViewState extends State<ThumbnailView> {
   Widget build(BuildContext context) {
     final t = _thumb;
     if (t == null) {
-      return Container(
-        color: Colors.white,
-        alignment: Alignment.center,
-        child: _failed
-            ? const Icon(Icons.broken_image_outlined, color: Colors.black26)
-            : const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
+      return LayoutBuilder(
+        builder: (context, c) => Container(
+          width: c.maxWidth,
+          height: math.min(c.maxHeight, c.maxWidth * 1.414),
+          decoration: const BoxDecoration(color: Colors.white, boxShadow: _pageShadow),
+          alignment: Alignment.center,
+          child: _failed
+              ? const Icon(Icons.broken_image_outlined, color: Colors.black26)
+              : const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
+        ),
       );
     }
-    return AspectRatio(
-      aspectRatio: t.pageSize.width / t.pageSize.height,
-      child: LayoutBuilder(
-        builder: (context, c) => Stack(
-          fit: StackFit.expand,
-          children: [
-            RawImage(image: t.image, fit: BoxFit.fill),
-            if (t.annotations.isNotEmpty)
-              CustomPaint(
-                painter: AnnotationPainter(annotations: t.annotations, scale: c.maxWidth / t.pageSize.width),
-              ),
-            if (t.pageCount > 1)
-              Positioned(
-                left: 3,
-                bottom: 3,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                  decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(3)),
-                  child: Text('${t.pageCount}p', style: const TextStyle(color: Colors.white, fontSize: 10)),
+    final sheets = widget.stacked ? math.min(3, t.pageCount - 1) : 0;
+    const gap = ThumbnailView.sheetGap;
+    return LayoutBuilder(
+      builder: (context, c) {
+        final inset = sheets * gap;
+        final aspect = t.pageSize.width / t.pageSize.height;
+        var w = c.maxWidth - inset, h = w / aspect;
+        if (h > c.maxHeight - inset) {
+          h = c.maxHeight - inset;
+          w = h * aspect;
+        }
+        final page = Container(
+          width: w,
+          height: h,
+          decoration: const BoxDecoration(color: Colors.white, boxShadow: _pageShadow),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              RawImage(image: t.image, fit: BoxFit.fill),
+              if (t.annotations.isNotEmpty)
+                CustomPaint(
+                  painter: AnnotationPainter(annotations: t.annotations, scale: w / t.pageSize.width),
                 ),
-              ),
-          ],
-        ),
-      ),
+              if (t.pageCount > 1)
+                Positioned(
+                  left: 3,
+                  bottom: 3,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                    decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(3)),
+                    child: Text('${t.pageCount}p', style: const TextStyle(color: Colors.white, fontSize: 10)),
+                  ),
+                ),
+            ],
+          ),
+        );
+        if (sheets == 0) return page;
+        // Lower sheets peek out up and to the right of the top sheet.
+        return SizedBox(
+          width: w + inset,
+          height: h + inset,
+          child: Stack(
+            children: [
+              for (var i = sheets; i >= 1; i--)
+                Positioned(
+                  left: i * gap,
+                  top: inset - i * gap,
+                  width: w,
+                  height: h,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: Color.lerp(Colors.white, const Color(0xFFD5D8DC), i / (sheets + 1)),
+                      border: Border.all(color: const Color(0x33000000), width: 0.6),
+                      boxShadow: _pageShadow,
+                    ),
+                  ),
+                ),
+              Positioned(left: 0, top: inset, child: page),
+            ],
+          ),
+        );
+      },
     );
   }
 }
@@ -161,13 +213,9 @@ class _Page extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final page = Container(
+    final page = ConstrainedBox(
       constraints: BoxConstraints(maxWidth: width, maxHeight: maxHeight - (entry.isBinder ? 6 : 2)),
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        boxShadow: [BoxShadow(color: Color(0x55000000), blurRadius: 3, offset: Offset(1.5, 1.5))],
-      ),
-      child: ThumbnailView(path: entry.path),
+      child: ThumbnailView(path: entry.path, stacked: !entry.isBinder),
     );
     if (!entry.isBinder) return page;
     // Binder: a cover spine on the left and stacked sheets behind.

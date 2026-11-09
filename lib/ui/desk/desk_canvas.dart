@@ -33,6 +33,7 @@ class _DeskCanvasState extends State<DeskCanvas> {
   Rect? _band;
   Set<String> _bandKeep = {};
   bool _osDragOver = false;
+  bool _panning = false;
 
   DeskController get desk => widget.desk;
 
@@ -62,6 +63,23 @@ class _DeskCanvasState extends State<DeskCanvas> {
         widget.actions(context).importFiles([for (final f in d.files) f.path], at);
       },
       child: Listener(
+        // Middle-button drag pans the desk, like sliding paper around.
+        onPointerDown: (e) {
+          if (e.buttons == kMiddleMouseButton) setState(() => _panning = true);
+        },
+        onPointerMove: (e) {
+          if (!_panning) return;
+          for (final (c, d) in [(_hScroll, e.delta.dx), (_vScroll, e.delta.dy)]) {
+            if (!c.hasClients) continue;
+            c.jumpTo((c.offset - d).clamp(0.0, c.position.maxScrollExtent));
+          }
+        },
+        onPointerUp: (_) {
+          if (_panning) setState(() => _panning = false);
+        },
+        onPointerCancel: (_) {
+          if (_panning) setState(() => _panning = false);
+        },
         onPointerSignal: (e) {
           if (e is PointerScrollEvent && _ctrl) {
             GestureBinding.instance.pointerSignalResolver.register(e, (_) {
@@ -75,14 +93,17 @@ class _DeskCanvasState extends State<DeskCanvas> {
             color: const Color(0xFFDDE3EA),
             border: _osDragOver ? Border.all(color: Theme.of(context).colorScheme.primary, width: 3) : null,
           ),
-          child: LayoutBuilder(builder: (context, viewport) => _buildScrollable(context, viewport)),
+          child: MouseRegion(
+            cursor: _panning ? SystemMouseCursors.grabbing : MouseCursor.defer,
+            child: LayoutBuilder(builder: (context, viewport) => _buildScrollable(context, viewport)),
+          ),
         ),
       ),
     );
   }
 
   Widget _buildScrollable(BuildContext context, BoxConstraints viewport) {
-    final entries = desk.visibleEntries;
+    final entries = desk.stackedEntries;
     var w = viewport.maxWidth, h = viewport.maxHeight;
     for (final e in entries) {
       final r = desk.rectOf(e);
@@ -107,6 +128,7 @@ class _DeskCanvasState extends State<DeskCanvas> {
                 if (grabbed == null) return;
                 final delta = _toContent(d.offset) - desk.positionOf(grabbed);
                 desk.movePathsBy(d.data.paths, delta);
+                desk.bringToFront(d.data.paths.reversed.toList());
                 desk.endMove();
               },
               builder: (context, _, _) => SizedBox(
@@ -122,6 +144,7 @@ class _DeskCanvasState extends State<DeskCanvas> {
                         top: desk.positionOf(e).dy,
                         child: _DeskItem(key: ValueKey(e.path), entry: e, desk: desk, actions: widget.actions),
                       ),
+                    if (_band == null) ?_selectionBar(context, entries),
                     if (_band != null)
                       Positioned.fromRect(
                         rect: _band!,
@@ -139,6 +162,58 @@ class _DeskCanvasState extends State<DeskCanvas> {
                 ),
               ),
             ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Quick actions floating just above a multi-selection (e.g. right after
+  /// band-selecting sheets): stack them, spread them, or bind them.
+  Widget? _selectionBar(BuildContext context, List<DeskEntry> entries) {
+    final sel = entries.where(desk.isSelected).toList();
+    if (sel.length < 2) return null;
+    final bounds = sel.map(desk.rectOf).reduce((a, b) => a.expandToInclude(b));
+    const barH = 38.0;
+    final top = bounds.top >= barH + 6 ? bounds.top - barH - 6 : bounds.bottom + 6;
+    final a = widget.actions(context);
+    Widget button(IconData icon, String label, String tip, VoidCallback onPressed) => Tooltip(
+      message: tip,
+      child: TextButton.icon(
+        onPressed: onPressed,
+        icon: Icon(icon, size: 18),
+        label: Text(label),
+        style: TextButton.styleFrom(visualDensity: VisualDensity.compact),
+      ),
+    );
+    return Positioned(
+      left: bounds.left,
+      top: top,
+      height: barH,
+      child: Material(
+        elevation: 3,
+        borderRadius: BorderRadius.circular(8),
+        color: Colors.white,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 6),
+                child: Text('${sel.length}개 선택', style: const TextStyle(fontSize: 12, color: Colors.black54)),
+              ),
+              button(Icons.layers_outlined, '겹치기', '선택한 순서대로 하나의 문서로 합칩니다', a.stackSelection),
+              button(Icons.view_carousel_outlined, '펼치기', '각 문서를 낱장으로 펼칩니다', () => a.spread()),
+              button(Icons.collections_bookmark_outlined, '바인더', '바인더로 묶습니다', () => a.makeBinder()),
+              IconButton(
+                tooltip: '선택 해제',
+                iconSize: 16,
+                visualDensity: VisualDensity.compact,
+                onPressed: desk.clearSelection,
+                icon: const Icon(Icons.close),
+              ),
+            ],
           ),
         ),
       ),
@@ -246,6 +321,8 @@ class _DeskItemState extends State<_DeskItem> {
     final ctrl = HardwareKeyboard.instance.isControlPressed || HardwareKeyboard.instance.isMetaPressed;
     final shift = HardwareKeyboard.instance.isShiftPressed;
     desk.select(entry, toggle: ctrl || shift);
+    // Clicking a sheet lifts it (and the rest of the selection) to the top.
+    if (desk.isSelected(entry)) desk.bringToFront([...desk.selection.where((s) => s != entry.path), entry.path]);
     if (now.difference(_lastDown) < const Duration(milliseconds: 400) && !ctrl && !shift) {
       _lastDown = DateTime(0);
       widget.actions(context).open(entry);
@@ -264,8 +341,10 @@ class _DeskItemState extends State<_DeskItem> {
       items: [
         const PopupMenuItem(value: 'open', child: Text('열기')),
         const PopupMenuDivider(),
-        if (multi) const PopupMenuItem(value: 'combine', child: Text('문서 묶기')),
-        if (!multi && !binder) const PopupMenuItem(value: 'split', child: Text('페이지별로 분할')),
+        if (multi) const PopupMenuItem(value: 'stack', child: Text('겹치기 (첫 문서 뒤에 붙이기)')),
+        if (multi) const PopupMenuItem(value: 'combine', child: Text('새 문서로 묶기…')),
+        PopupMenuItem(value: 'spread', child: Text(multi ? '모두 낱장으로 펼치기' : (binder ? '풀어서 펼치기' : '낱장으로 펼치기'))),
+        if (!multi && !binder) const PopupMenuItem(value: 'split', child: Text('페이지별로 분할 (원본 유지)…')),
         const PopupMenuItem(value: 'binder', child: Text('바인더 만들기')),
         if (!multi && binder) const PopupMenuItem(value: 'unbind', child: Text('바인더 해제')),
         if (!binder) ...const [
@@ -288,8 +367,12 @@ class _DeskItemState extends State<_DeskItem> {
     switch (choice) {
       case 'open':
         await a.open(entry);
+      case 'stack':
+        await a.stackSelection();
       case 'combine':
         await a.combine();
+      case 'spread':
+        await (multi ? a.spread() : a.spread(entry));
       case 'split':
         await a.split(entry);
       case 'binder':
@@ -315,28 +398,43 @@ class _DeskItemState extends State<_DeskItem> {
     }
   }
 
-  /// Dropping documents onto a binder adds them; onto a document asks
-  /// whether to combine or make a binder.
-  Future<void> _onDropOnto(List<String> paths) async {
+  /// Dropping documents onto a binder adds them; onto a document offers to
+  /// stack them on it (겹치기), make a binder, or just lay them on top.
+  Future<void> _onDropOnto(DragTargetDetails<DeskDragData> d) async {
     final a = widget.actions(context);
+    final paths = d.data.paths;
     if (entry.isBinder) {
       await a.addToBinder(entry, paths);
       return;
     }
     final others = [for (final p in paths) ...desk.entries.where((e) => e.path == p)];
-    final targets = [entry, ...others];
-    final rect = (context.findRenderObject() as RenderBox).localToGlobal(Offset.zero);
+    final box = context.findRenderObject() as RenderBox;
+    final origin = box.localToGlobal(Offset.zero);
+    final at = d.offset;
     final choice = await showMenu<String>(
       context: context,
-      position: RelativeRect.fromLTRB(rect.dx + 40, rect.dy + 40, rect.dx + 40, rect.dy + 40),
-      items: const [
-        PopupMenuItem(value: 'combine', child: Text('문서 묶기')),
-        PopupMenuItem(value: 'binder', child: Text('바인더 만들기')),
-        PopupMenuItem(value: 'cancel', child: Text('취소')),
+      position: RelativeRect.fromLTRB(at.dx + 40, at.dy + 40, at.dx + 40, at.dy + 40),
+      items: [
+        PopupMenuItem(value: 'stack', child: Text("'${entry.title}' 뒤에 겹치기")),
+        const PopupMenuItem(value: 'binder', child: Text('바인더 만들기')),
+        const PopupMenuItem(value: 'move', child: Text('위에 올려놓기만')),
+        const PopupMenuDivider(),
+        const PopupMenuItem(value: 'cancel', child: Text('취소')),
       ],
     );
-    if (choice == 'combine') await a.combine(targets);
-    if (choice == 'binder') await a.makeBinder(targets);
+    switch (choice) {
+      case 'stack':
+        await a.stackOnto(entry, paths);
+      case 'binder':
+        await a.makeBinder([entry, ...others]);
+      case 'move':
+        final grabbed = others.firstOrNull;
+        if (grabbed == null) return;
+        final target = desk.positionOf(entry) + (at - origin);
+        desk.movePathsBy(paths, target - desk.positionOf(grabbed));
+        desk.bringToFront(paths.reversed.toList());
+        desk.endMove();
+    }
   }
 
   @override
@@ -346,7 +444,7 @@ class _DeskItemState extends State<_DeskItem> {
     final paths = [entry.path, ...desk.selection.where((s) => s != entry.path)];
     return DragTarget<DeskDragData>(
       onWillAcceptWithDetails: (d) => !d.data.paths.contains(entry.path),
-      onAcceptWithDetails: (d) => _onDropOnto(d.data.paths),
+      onAcceptWithDetails: _onDropOnto,
       builder: (context, candidates, _) => Listener(
         onPointerDown: _onPointerDown,
         child: Draggable<DeskDragData>(

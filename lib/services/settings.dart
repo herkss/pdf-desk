@@ -15,6 +15,13 @@ class Settings extends ChangeNotifier {
   String stampName = '';
   String lastFolder = '';
 
+  /// What to do with a document printed to the "PDF Desk" printer: lay it on
+  /// the desk as one document, or spread it out one sheet per page.
+  bool spreadPrinted = false;
+
+  /// Where the "PDF Desk" printer writes its output.
+  String get inboxPath => p.join(_file.parent.path, 'inbox');
+
   /// Settings stored in [file], for tests.
   @visibleForTesting
   factory Settings.at(File file, String rootPath) => Settings._(file)..rootPath = rootPath;
@@ -28,6 +35,7 @@ class Settings extends ChangeNotifier {
       s.stampLabel = j['stampLabel'] as String? ?? s.stampLabel;
       s.stampName = j['stampName'] as String? ?? '';
       s.lastFolder = j['lastFolder'] as String? ?? '';
+      s.spreadPrinted = j['spreadPrinted'] as bool? ?? false;
     } catch (_) {}
     if (s.rootPath.isEmpty || !Directory(s.rootPath).existsSync()) {
       final docs = await getApplicationDocumentsDirectory();
@@ -44,7 +52,13 @@ class Settings extends ChangeNotifier {
     notifyListeners();
     await _file.parent.create(recursive: true);
     await _file.writeAsString(
-      jsonEncode({'rootPath': rootPath, 'stampLabel': stampLabel, 'stampName': stampName, 'lastFolder': lastFolder}),
+      jsonEncode({
+        'rootPath': rootPath,
+        'stampLabel': stampLabel,
+        'stampName': stampName,
+        'lastFolder': lastFolder,
+        'spreadPrinted': spreadPrinted,
+      }),
     );
   }
 }
