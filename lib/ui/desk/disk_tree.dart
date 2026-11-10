@@ -25,22 +25,52 @@ class DiskDragData {
 /// - Drag a file onto another folder to move it (Ctrl: copy).
 /// - Right-click a folder → 데스크로 열기 to work on that folder directly.
 class DiskTree extends StatefulWidget {
-  const DiskTree({super.key, required this.desk, required this.actions});
+  const DiskTree({super.key, required this.desk, required this.actions, this.roots});
   final DeskController desk;
   final DeskActions Function(BuildContext) actions;
+
+  /// Top-level places to show instead of the computer's own (for tests).
+  final List<(String, String, IconData)>? roots;
 
   @override
   State<DiskTree> createState() => _DiskTreeState();
 }
 
 /// Top-level places: the user's common folders, then every drive.
-List<(String label, String path, IconData icon)> diskRoots() {
+///
+/// On Windows the real Desktop/Documents/Downloads come from the shell
+/// folder registry: with OneDrive backup they live under OneDrive, often
+/// with localized names (e.g. "OneDrive\바탕 화면").
+Future<List<(String label, String path, IconData icon)>> diskRoots() async {
   final home = Platform.environment['USERPROFILE'] ?? Platform.environment['HOME'] ?? '';
+  var desktop = p.join(home, 'Desktop'), documents = p.join(home, 'Documents'), downloads = p.join(home, 'Downloads');
+  if (Platform.isWindows) {
+    try {
+      final r = await Process.run('reg', [
+        'query',
+        r'HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Shell Folders',
+      ]);
+      for (final line in '${r.stdout}'.split('\n')) {
+        final m = RegExp(r'^\s+(\S+)\s+REG_\w+\s+(.+?)\s*$').firstMatch(line);
+        if (m == null) continue;
+        switch (m[1]) {
+          case 'Desktop':
+            desktop = m[2]!;
+          case 'Personal':
+            documents = m[2]!;
+          case '{374DE290-123F-4565-9164-39C4925E467B}':
+            downloads = m[2]!;
+        }
+      }
+    } catch (_) {
+      // Fall back to the usual names under the profile.
+    }
+  }
   final places = <(String, String, IconData)>[
     if (home.isNotEmpty) ...[
-      (tr('바탕 화면'), p.join(home, 'Desktop'), Icons.desktop_mac_outlined),
-      (tr('문서'), p.join(home, 'Documents'), Icons.description_outlined),
-      (tr('다운로드'), p.join(home, 'Downloads'), Icons.download_outlined),
+      (tr('바탕 화면'), desktop, Icons.desktop_mac_outlined),
+      (tr('문서'), documents, Icons.description_outlined),
+      (tr('다운로드'), downloads, Icons.download_outlined),
     ],
   ].where((e) => Directory(e.$2).existsSync()).toList();
   if (Platform.isWindows) {
@@ -57,6 +87,13 @@ List<(String label, String path, IconData icon)> diskRoots() {
   return places;
 }
 
+/// What a folder holds, or why it couldn't be read.
+class _Listing {
+  _Listing(this.dirs, this.files, [this.error]);
+  final List<String> dirs, files;
+  final String? error;
+}
+
 /// System folders Explorer hides too.
 bool _skip(String name) =>
     name.startsWith('.') ||
@@ -66,15 +103,33 @@ bool _skip(String name) =>
 
 class _DiskTreeState extends State<DiskTree> {
   final _expanded = <String>{};
-  final _cache = <String, (List<String> dirs, List<String> files)>{};
+  final _cache = <String, _Listing>{};
+  final _loading = <String>{};
+  List<(String, String, IconData)>? _roots;
+
+  @override
+  void initState() {
+    super.initState();
+    _roots = widget.roots;
+    if (_roots != null) return;
+    diskRoots().then((r) {
+      if (mounted) setState(() => _roots = r);
+    });
+  }
+
   String? _selectedFile;
 
   DeskController get desk => widget.desk;
 
-  (List<String>, List<String>) _list(String folder) => _cache[folder] ??= () {
+  /// Reads [folder] in the background; entries that can't be read (system
+  /// folders, other users' files) are skipped instead of failing the list.
+  Future<void> _load(String folder) async {
+    if (_loading.contains(folder)) return;
+    _loading.add(folder);
+    final dirs = <String>[], files = <String>[];
+    String? error;
     try {
-      final dirs = <String>[], files = <String>[];
-      for (final e in Directory(folder).listSync(followLinks: false)) {
+      await for (final e in Directory(folder).list(followLinks: false).handleError((Object _) {})) {
         final name = p.basename(e.path);
         if (_skip(name)) continue;
         if (e is Directory && !isBinderPath(name)) {
@@ -83,14 +138,19 @@ class _DiskTreeState extends State<DiskTree> {
           files.add(e.path);
         }
       }
-      int byName(String a, String b) => p.basename(a).toLowerCase().compareTo(p.basename(b).toLowerCase());
-      return (dirs..sort(byName), files..sort(byName));
-    } catch (_) {
-      return (<String>[], <String>[]);
+    } on FileSystemException catch (e) {
+      error = e.osError?.message ?? e.message;
     }
-  }();
+    int byName(String a, String b) => p.basename(a).toLowerCase().compareTo(p.basename(b).toLowerCase());
+    _loading.remove(folder);
+    if (!mounted) return;
+    setState(() => _cache[folder] = _Listing(dirs..sort(byName), files..sort(byName), error));
+  }
 
-  void _refresh([String? folder]) => setState(() => folder == null ? _cache.clear() : _cache.remove(folder));
+  void _refresh([String? folder]) {
+    setState(() => folder == null ? _cache.clear() : _cache.remove(folder));
+    if (folder != null && _expanded.contains(folder)) _load(folder);
+  }
 
   bool get _ctrl => HardwareKeyboard.instance.isControlPressed || HardwareKeyboard.instance.isMetaPressed;
 
@@ -155,7 +215,12 @@ class _DiskTreeState extends State<DiskTree> {
 
   List<Widget> _folder(String path, String label, IconData icon, int depth) {
     final open = _expanded.contains(path);
-    final (dirs, files) = open ? _list(path) : (const <String>[], const <String>[]);
+    final listing = open ? _cache[path] : null;
+    if (open && listing == null) _load(path);
+    Widget note(String text) => Padding(
+      padding: EdgeInsets.only(left: 30.0 + (depth + 1) * 14, top: 3, bottom: 3),
+      child: Text(text, style: TextStyle(fontSize: 11.5, color: context.ink3)),
+    );
     return [
       _DiskRow(
         depth: depth,
@@ -164,16 +229,26 @@ class _DiskTreeState extends State<DiskTree> {
         expandable: true,
         expanded: open,
         current: desk.folder == path,
-        onTap: () => setState(() => open ? _expanded.remove(path) : _expanded.add(path)),
+        onTap: () {
+          setState(() => open ? _expanded.remove(path) : _expanded.add(path));
+          if (!open) _load(path);
+        },
         onSecondary: (pos) => _folderMenu(path, pos),
         onDeskDrop: (paths) => widget.actions(context).copyToDiskFolder(paths, path).then((_) => _refresh(path)),
         onFileDrop: (paths) => _moveFiles(paths, path),
         tooltip: path,
       ),
-      if (open) ...[
-        for (final d in dirs) ..._folder(d, p.basename(d), Icons.folder, depth + 1),
-        for (final f in files) _file(f, depth + 1),
-      ],
+      if (open)
+        if (listing == null)
+          note(tr('불러오는 중…'))
+        else if (listing.error != null)
+          note(tr('열 수 없습니다: {error}', {'error': listing.error}))
+        else if (listing.dirs.isEmpty && listing.files.isEmpty)
+          note(tr('PDF나 이미지 파일이 없습니다'))
+        else ...[
+          for (final d in listing.dirs) ..._folder(d, p.basename(d), Icons.folder, depth + 1),
+          for (final f in listing.files) _file(f, depth + 1),
+        ],
     ];
   }
 
@@ -223,7 +298,15 @@ class _DiskTreeState extends State<DiskTree> {
       listenable: desk,
       builder: (context, _) => ListView(
         padding: const EdgeInsets.only(bottom: 8),
-        children: [for (final (label, path, icon) in diskRoots()) ..._folder(path, label, icon, 0)],
+        children: [
+          if (_roots == null)
+            Padding(
+              padding: const EdgeInsets.all(12),
+              child: Text(tr('불러오는 중…'), style: TextStyle(fontSize: 12, color: context.ink3)),
+            )
+          else
+            for (final (label, path, icon) in _roots!) ..._folder(path, label, icon, 0),
+        ],
       ),
     );
   }

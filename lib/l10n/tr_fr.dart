@@ -173,6 +173,7 @@ const trFr = <String, String>{
   '오른쪽에 미리보기 창을 표시합니다 (←/→로 페이지 넘기기)': 'Affiche un volet d\'aperçu à droite (←/→ pour tourner les pages)',
   '문서 이름 검색': 'Rechercher des documents',
   '내 PC': 'Ce PC',
+  '접기': 'Replier',
   '{n}개 항목': '{n} éléments',
   ' · {n}개 선택': ' · {n} sélectionné(s)',
   '\'PDF Desk\' 프린터를 설치하고 기본 프린터로 지정했습니다. 이제 인쇄하면 데스크에 바로 놓입니다.':
@@ -195,6 +196,9 @@ const trFr = <String, String>{
   '데스크로 열기': 'Ouvrir comme bureau',
   '데스크로 옮기기': 'Déplacer sur le bureau',
   '데스크로 복사': 'Copier sur le bureau',
+  '불러오는 중…': 'Chargement…',
+  '열 수 없습니다: {error}': 'Impossible d\'ouvrir : {error}',
+  'PDF나 이미지 파일이 없습니다': 'Aucun fichier PDF ou image',
   '내 데스크': 'Mon bureau',
   '폴더 이름 바꾸기': 'Renommer le dossier',
   '폴더 삭제': 'Supprimer le dossier',

@@ -173,6 +173,7 @@ const trEs = <String, String>{
   '오른쪽에 미리보기 창을 표시합니다 (←/→로 페이지 넘기기)': 'Muestra un panel de vista previa a la derecha (←/→ para pasar páginas)',
   '문서 이름 검색': 'Buscar documentos',
   '내 PC': 'Este equipo',
+  '접기': 'Contraer',
   '{n}개 항목': '{n} elementos',
   ' · {n}개 선택': ' · {n} seleccionados',
   '\'PDF Desk\' 프린터를 설치하고 기본 프린터로 지정했습니다. 이제 인쇄하면 데스크에 바로 놓입니다.':
@@ -195,6 +196,9 @@ const trEs = <String, String>{
   '데스크로 열기': 'Abrir como escritorio',
   '데스크로 옮기기': 'Mover al escritorio',
   '데스크로 복사': 'Copiar al escritorio',
+  '불러오는 중…': 'Cargando…',
+  '열 수 없습니다: {error}': 'No se puede abrir: {error}',
+  'PDF나 이미지 파일이 없습니다': 'No hay archivos PDF ni de imagen',
   '내 데스크': 'Mi escritorio',
   '폴더 이름 바꾸기': 'Cambiar nombre de la carpeta',
   '폴더 삭제': 'Eliminar carpeta',

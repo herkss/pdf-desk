@@ -173,6 +173,7 @@ const trEn = <String, String>{
   '오른쪽에 미리보기 창을 표시합니다 (←/→로 페이지 넘기기)': 'Shows a preview pane on the right (←/→ to turn pages)',
   '문서 이름 검색': 'Search documents',
   '내 PC': 'This PC',
+  '접기': 'Collapse',
   '{n}개 항목': '{n} items',
   ' · {n}개 선택': ' · {n} selected',
   '\'PDF Desk\' 프린터를 설치하고 기본 프린터로 지정했습니다. 이제 인쇄하면 데스크에 바로 놓입니다.':
@@ -195,6 +196,9 @@ const trEn = <String, String>{
   '데스크로 열기': 'Open as desk',
   '데스크로 옮기기': 'Move to desk',
   '데스크로 복사': 'Copy to desk',
+  '불러오는 중…': 'Loading…',
+  '열 수 없습니다: {error}': 'Can\'t open: {error}',
+  'PDF나 이미지 파일이 없습니다': 'No PDF or image files',
   '내 데스크': 'My desk',
   '폴더 이름 바꾸기': 'Rename folder',
   '폴더 삭제': 'Delete folder',

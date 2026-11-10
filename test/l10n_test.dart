@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf_desk/l10n/l10n.dart';
+import 'package:pdf_desk/l10n/manual.dart';
 
 String _unescape(String s) => s.replaceAllMapped(
   RegExp(r'\\(.)'),
@@ -53,5 +54,21 @@ void main() {
     expect(tr('번역 없는 문장'), '번역 없는 문장');
     expect(AppLanguage.byCode('zh'), AppLanguage.zh);
     expect(AppLanguage.byCode('xx'), AppLanguage.ko);
+  });
+
+  test('the manual has every chapter in every language', () {
+    final ko = manualFor(AppLanguage.ko);
+    expect(ko.length, greaterThanOrEqualTo(10));
+    for (final lang in AppLanguage.values) {
+      final m = manualFor(lang);
+      expect(m.length, ko.length, reason: '$lang');
+      for (final (title, body) in m) {
+        expect(title.trim(), isNotEmpty, reason: '$lang');
+        expect(body.trim().length, greaterThan(80), reason: '$lang: $title');
+      }
+    }
+    // Each language is written in that language, not a copy of another.
+    expect(manualFor(AppLanguage.ja).first.$1, isNot(manualFor(AppLanguage.en).first.$1));
+    expect(manualFor(AppLanguage.zh).first.$1, isNot(manualFor(AppLanguage.ja).first.$1));
   });
 }

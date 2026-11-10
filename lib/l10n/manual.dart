@@ -1,9 +1,20 @@
 import 'l10n.dart';
+import 'manual_es.dart';
+import 'manual_fr.dart';
+import 'manual_ja.dart';
+import 'manual_zh.dart';
 
-/// The user manual: (chapter title, body) per language. Body markup: `## `
-/// subheading, `- ` bullet, `` `key` `` for keys and buttons. Languages
-/// without their own text use the English one.
-List<(String, String)> manualFor(AppLanguage lang) => lang == AppLanguage.ko ? _ko : _en;
+/// The user manual: (chapter title, body) per language, the same chapters
+/// in the same order in each. Body markup: `## ` subheading, `- ` bullet,
+/// `` `key` `` for keys and buttons.
+List<(String, String)> manualFor(AppLanguage lang) => switch (lang) {
+  AppLanguage.ko => _ko,
+  AppLanguage.ja => manualJa,
+  AppLanguage.zh => manualZh,
+  AppLanguage.en => _en,
+  AppLanguage.es => manualEs,
+  AppLanguage.fr => manualFr,
+};
 
 const _ko = <(String, String)>[
   (
@@ -82,6 +93,7 @@ PDF Desk는 종이 문서를 책상 위에 펼쳐 놓고 일하듯 PDF를 다루
 
 ## 내 PC (왼쪽 아래)
 - 바탕 화면, 문서, 다운로드와 C:, D: 같은 드라이브를 탐색기처럼 펼쳐 봅니다
+- 폴더를 클릭하면 안의 폴더와 PDF·이미지 파일이 나타납니다
 - 디스크의 PDF·이미지를 데스크로 끌면 데스크로 옮겨집니다 (`Ctrl`: 복사)
 - 데스크 문서를 디스크 폴더로 끌면 복사됩니다. 주석은 PDF에 새겨지고 바인더는 한 PDF가 됩니다
 - 파일을 다른 디스크 폴더로 끌면 옮겨집니다 (`Ctrl`: 복사)
@@ -201,6 +213,10 @@ PDF Desk는 종이 문서를 책상 위에 펼쳐 놓고 일하듯 PDF를 다루
 - 인쇄 창에서 프린터가 `PDF Desk`인지 확인하세요
 - PDF Desk가 켜져 있어야 데스크에 놓입니다
 
+## 내 PC에 아무것도 안 보여요
+- `내 PC` 제목줄 오른쪽 화살표로 접혀 있지 않은지 확인하세요
+- 폴더를 클릭하면 안의 내용이 나옵니다. PDF나 이미지가 없는 폴더에는 "PDF나 이미지 파일이 없습니다"라고 나옵니다
+
 ## 글꼴이 다르게 나와요
 - 고른 글꼴이 PC에 설치되어 있어야 PDF에 들어갑니다. 없으면 맑은 고딕으로 나옵니다
 ''',
@@ -284,6 +300,7 @@ Documents are ordinary files in `C:\\Users\\<name>\\PdfDesk`. You can change it 
 
 ## This PC (bottom left)
 - Browse Desktop, Documents, Downloads and drives such as C: and D:
+- Click a folder to see its subfolders and its PDF and image files
 - Drag a PDF or image from the disk onto the desk to move it in (`Ctrl`: copy)
 - Drag desk documents onto a disk folder to copy them out; annotations are burned in and a binder becomes one PDF
 - Drag a file onto another disk folder to move it (`Ctrl`: copy)
@@ -402,6 +419,10 @@ Both are remembered for next time.
 ## Printing doesn't reach the desk
 - Check that the printer in the print dialog is `PDF Desk`
 - PDF Desk must be running to put the document on the desk
+
+## This PC shows nothing
+- Check that it isn't folded away with the arrow at the right of the `This PC` title
+- Click a folder to see what's inside. A folder without PDFs or images says "No PDF or image files"
 
 ## A font looks different
 - A font must be installed on the PC to go into the PDF; otherwise Malgun Gothic is used

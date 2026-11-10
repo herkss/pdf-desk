@@ -639,11 +639,20 @@ class _DeskScreenState extends State<DeskScreen> {
               cursor: _diskOpen ? SystemMouseCursors.resizeRow : MouseCursor.defer,
               child: DecoratedBox(
                 decoration: BoxDecoration(border: Border(top: context.hairline)),
+                // Only the arrow folds the section away; the title is the
+                // splitter's handle.
                 child: header(
                   tr('내 PC'),
                   Icons.computer,
-                  trailing: Icon(_diskOpen ? Icons.expand_more : Icons.chevron_right, size: 16),
-                  onTap: () => setState(() => _diskOpen = !_diskOpen),
+                  trailing: IconButton(
+                    tooltip: _diskOpen ? tr('접기') : tr('펼치기'),
+                    visualDensity: VisualDensity.compact,
+                    iconSize: 16,
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
+                    icon: Icon(_diskOpen ? Icons.expand_more : Icons.chevron_right),
+                    onPressed: () => setState(() => _diskOpen = !_diskOpen),
+                  ),
                 ),
               ),
             ),

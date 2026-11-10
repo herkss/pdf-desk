@@ -19,7 +19,11 @@ void main() {
       await initPdfiumForTests(tmp.path);
       Future<String> make(String name, String text) async {
         final doc = pw.Document()
-          ..addPage(pw.Page(build: (_) => pw.Center(child: pw.Text(text, style: const pw.TextStyle(fontSize: 40)))));
+          ..addPage(
+            pw.Page(
+              build: (_) => pw.Center(child: pw.Text(text, style: const pw.TextStyle(fontSize: 40))),
+            ),
+          );
         final path = p.join(tmp.path, '$name.pdf');
         await File(path).writeAsBytes(await doc.save());
         return path;
