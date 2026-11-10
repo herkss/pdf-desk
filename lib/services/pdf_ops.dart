@@ -177,9 +177,8 @@ Future<void> stackOnto(String target, List<String> sources) async {
   final others = sources.where((s) => s != target).toList();
   if (others.isEmpty) return;
   await assembleTo([...await allPages(target), for (final s in others) ...await pagesOfEntry(s)], target);
-  for (final s in others) {
-    await deleteDocument(s);
-  }
+  // Not waited for: a fresh sheet can be held by Windows for seconds.
+  await Future.wait([for (final s in others) deleteSoon(s)]);
 }
 
 /// A copy of the documents involved in a 겹치기, so it can be undone. Only
@@ -223,8 +222,13 @@ class StackUndo {
   Future<void> restore() async {
     if (!canRestore) throw StateError(tr('이미 다른 작업을 해서 되돌릴 수 없습니다.'));
     _latest = null;
-    for (final (original, backup) in _items) {
-      if (await File(original).exists() || await Directory(original).exists()) await deleteDocument(original);
+    for (final (i, (original, backup)) in _items.indexed) {
+      final pending = pendingDeletes.remove(original);
+      final exists = await File(original).exists() || await Directory(original).exists();
+      // The stacked-onto document (first) changed; the others didn't, so
+      // one Windows hasn't let go of yet can simply stay.
+      if (exists && i > 0 && pending) continue;
+      if (exists) await deleteDocument(original);
       await moveDocument(backup, original);
     }
     await discard();
@@ -245,7 +249,7 @@ Future<void> _deleteQuietly(FileSystemEntity e) async {
 /// 펼치기: replaces a multi-page document with one document per page.
 Future<List<String>> spreadPages(String path, String folder) async {
   final outs = await splitPages(path, folder);
-  await deleteDocument(path);
+  await deleteSoon(path);
   return outs;
 }
 
@@ -302,6 +306,10 @@ Future<bool> restoreEditable(String path) async {
   }
 }
 
+/// Imported images are fitted to an A4 page; otherwise they keep their size
+/// at 96 dpi. Set from the 가져오기 button's settings.
+var importImagesFitA4 = true;
+
 /// Wraps an image in a single-page PDF sized to fit A4 (portrait or landscape).
 Future<Uint8List> imageToPdf(Uint8List data, String name) async {
   final decoded = img.decodeImage(data);
@@ -310,7 +318,7 @@ Future<Uint8List> imageToPdf(Uint8List data, String name) async {
   final jpeg = isJpeg ? data : img.encodeJpg(decoded, quality: 92);
   final landscape = decoded.width > decoded.height;
   final boxW = landscape ? 842.0 : 595.0, boxH = landscape ? 595.0 : 842.0;
-  final scale = math.min(boxW / decoded.width, boxH / decoded.height);
+  final scale = importImagesFitA4 ? math.min(boxW / decoded.width, boxH / decoded.height) : 72 / 96;
   final doc = await PdfDocument.createFromJpegData(
     jpeg,
     width: decoded.width * scale,

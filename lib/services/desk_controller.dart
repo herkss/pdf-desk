@@ -18,7 +18,7 @@ class DeskEntry {
   bool get isBinder => isBinderPath(path);
 }
 
-enum SortMode { name, modified }
+enum SortMode { name, modified, size }
 
 /// State of the desk (the central work area) for the current folder.
 class DeskController extends ChangeNotifier {
@@ -110,7 +110,7 @@ class DeskController extends ChangeNotifier {
     var subfoldersChanged = false;
     await for (final e in dir.list(followLinks: false)) {
       final name = p.basename(e.path);
-      if (isHiddenName(name)) continue;
+      if (isHiddenName(name) || pendingDeletes.contains(e.path)) continue;
       if (e is File && isPdf(name)) found.add(DeskEntry(e.path));
       if (e is Directory) {
         if (isBinderPath(name)) {
@@ -317,12 +317,16 @@ class DeskController extends ChangeNotifier {
   }
 
   /// 정렬: lays all documents out on a grid in [mode] order.
-  Future<void> arrange(SortMode mode) async {
-    final list = List.of(entries);
+  Future<void> arrange(SortMode mode, {bool descending = false}) async {
+    var list = List.of(entries);
     if (mode == SortMode.modified) {
       final stamps = {for (final e in list) e.path: (await FileStat.stat(e.path)).modified};
       list.sort((a, b) => stamps[b.path]!.compareTo(stamps[a.path]!));
+    } else if (mode == SortMode.size) {
+      final sizes = {for (final e in list) e.path: (await FileStat.stat(e.path)).size};
+      list.sort((a, b) => sizes[b.path]!.compareTo(sizes[a.path]!));
     }
+    if (descending) list = list.reversed.toList();
     final step = gridStep;
     final cols = math.max(1, (1100 / step.width).floor());
     for (var i = 0; i < list.length; i++) {

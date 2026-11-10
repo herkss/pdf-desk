@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
 import 'dart:ui';
 
 import 'package:flutter/foundation.dart';
@@ -127,6 +129,46 @@ Future<void> deleteDocument(String path) async {
   }
   final sidecar = File(annotationPathFor(path));
   if (await sidecar.exists()) await retryFileOp(sidecar.delete);
+}
+
+/// Documents being deleted in the background because Windows refused for
+/// the moment (a virus scanner or the indexer still reading a fresh file).
+/// The desk hides them meanwhile, so the user never waits for them.
+final pendingDeletes = <String>{};
+
+/// Deletes [path] now if Windows lets us, otherwise hides it and keeps
+/// trying in the background for about a minute.
+Future<void> deleteSoon(String path) async {
+  pendingDeletes.remove(path);
+  try {
+    await _deleteOnce(path);
+    return;
+  } on FileSystemException {
+    pendingDeletes.add(path);
+  }
+  unawaited(() async {
+    for (var i = 1; i <= 40 && pendingDeletes.contains(path); i++) {
+      await Future<void>.delayed(Duration(milliseconds: 250 * math.min(i, 8)));
+      if (!pendingDeletes.contains(path)) return;
+      try {
+        await _deleteOnce(path);
+        break;
+      } on FileSystemException {
+        // Still held; try again shortly.
+      }
+    }
+    pendingDeletes.remove(path);
+  }());
+}
+
+Future<void> _deleteOnce(String path) async {
+  if (await Directory(path).exists()) {
+    await Directory(path).delete(recursive: true);
+  } else if (await File(path).exists()) {
+    await File(path).delete();
+  }
+  final sidecar = File(annotationPathFor(path));
+  if (await sidecar.exists()) await sidecar.delete();
 }
 
 Future<void> _move(String from, String to) async {

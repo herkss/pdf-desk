@@ -15,9 +15,12 @@ import '../../l10n/l10n.dart';
 /// annotations, ◀ ▶ (or ←/→, PageUp/PageDown, the mouse wheel) to page
 /// through. Binders page through all their documents in order.
 class PreviewPane extends StatefulWidget {
-  const PreviewPane({super.key, required this.entry, required this.onOpen});
+  const PreviewPane({super.key, required this.entry, required this.onOpen, this.wheelPages = true});
   final DeskEntry? entry;
   final void Function(DeskEntry) onOpen;
+
+  /// The mouse wheel turns pages.
+  final bool wheelPages;
 
   @override
   State<PreviewPane> createState() => PreviewPaneState();
@@ -177,7 +180,7 @@ class PreviewPaneState extends State<PreviewPane> {
     return Listener(
       // Wheel pages through the document, like flipping sheets.
       onPointerSignal: (e) {
-        if (e is PointerScrollEvent) e.scrollDelta.dy > 0 ? next() : previous();
+        if (e is PointerScrollEvent && widget.wheelPages) e.scrollDelta.dy > 0 ? next() : previous();
       },
       child: Padding(
         padding: const EdgeInsets.all(14),

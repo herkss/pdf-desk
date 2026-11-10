@@ -12,6 +12,7 @@ import '../common/annotation_painter.dart';
 import '../common/dialogs.dart';
 import 'annotation_style.dart';
 import 'region_copy.dart';
+import 'tool_style.dart';
 import 'viewer_controller.dart';
 import '../../l10n/l10n.dart';
 
@@ -69,6 +70,12 @@ class _AnnotatedPageState extends State<AnnotatedPage> {
     }
     if (e.buttons != kPrimaryMouseButton || !c.showAnnotations) return;
     final p = _toPage(e.localPosition);
+    if (_editing != null) {
+      // A click outside the box finishes typing; it doesn't start anything.
+      final inside = _editing!.bounds.inflate(4).contains(p);
+      if (!inside) _finishEditing();
+      return;
+    }
     c.currentPage = page;
     _checkpointed = false;
     final now = DateTime.now();
@@ -144,7 +151,7 @@ class _AnnotatedPageState extends State<AnnotatedPage> {
       return;
     }
     if (doubleTap && (hit.isBoxed)) {
-      _editText(hit);
+      _editAnnotationText(hit);
       return;
     }
     if (shift) {
@@ -267,11 +274,12 @@ class _AnnotatedPageState extends State<AnnotatedPage> {
   /// app clipboard, ready to paste into any document, and its text onto the
   /// system clipboard for other programs.
   Future<void> _copyRegion(Rect r) async {
-    final copied = await copyPageRegion(c, page, r);
+    final st = toolStyles[Tool.clip]!;
+    final copied = await copyPageRegion(c, page, r, dpi: st.clipDpi, withAnnotations: st.clipAnnotations);
     if (!mounted || copied == null) return;
     final (image, text) = copied;
     ViewerController.copyToClipboard([image]);
-    if (text.trim().isNotEmpty) await Clipboard.setData(ClipboardData(text: text));
+    if (st.clipText && text.trim().isNotEmpty) await Clipboard.setData(ClipboardData(text: text));
     if (!mounted) return;
     showInfo(
       context,
@@ -284,37 +292,146 @@ class _AnnotatedPageState extends State<AnnotatedPage> {
   void _erase(Offset p) {
     final hit = _hit(p);
     if (hit == null) return;
+    if (toolStyles[Tool.eraser]!.eraseInkOnly && !hit.isFreehand) return;
     c.deleteAnnotation(hit);
   }
 
-  Future<void> _createText(Offset p) async {
-    final text = await promptText(context, title: tr('텍스트 주석'), maxLines: 5);
-    if (text == null || text.trim().isEmpty) return;
-    c.add(c.newText(page, p, text));
+  // In-place text editing: a text box opens where the user clicked and
+  // grows as they type. Esc, Ctrl+Enter or a click elsewhere finishes it.
+  Annotation? _editing;
+  bool _editingNew = false;
+  final _editText = TextEditingController();
+  final _editFocus = FocusNode();
+
+  void _createText(Offset p) => _startEditing(c.newText(page, p, ''), isNew: true);
+
+  void _createSticky(Offset p) => _startEditing(c.newSticky(page, p, ''), isNew: true);
+
+  void _startEditing(Annotation a, {bool isNew = false}) {
+    _finishEditing();
+    if (isNew) {
+      c.add(a);
+    } else {
+      c.checkpoint();
+    }
+    _editing = a;
+    _editingNew = isNew;
+    _editText.text = a.text;
+    _editText.selection = TextSelection.collapsed(offset: a.text.length);
+    _fit(a);
+    setState(() {});
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _editFocus.requestFocus();
+    });
   }
 
-  Future<void> _createSticky(Offset p) async {
-    final text = await promptText(context, title: tr('부전 (스티커 메모)'), maxLines: 5);
-    if (text == null) return;
-    c.add(c.newSticky(page, p, text));
+  /// The box follows the text: a text note fits it exactly, a sticky note
+  /// keeps its width and grows downwards.
+  void _fit(Annotation a) {
+    final minW = a.type == AnnotationType.text ? 60.0 : 140.0;
+    final size = measureText(a.text.isEmpty ? (a.copy()..text = ' ') : a);
+    final tl = a.points.first;
+    if (a.type == AnnotationType.text) {
+      a.points = [tl, tl + Offset(math.max(minW, size.width + 6), size.height)];
+    } else {
+      a.points = [tl, tl + Offset(math.max(a.bounds.width, minW), math.max(40, size.height + 8))];
+    }
   }
 
-  void _createStamp(Offset p) {
-    final s = widget.settings;
-    final date = DateFormat('yy.MM.dd').format(DateTime.now());
-    const size = 64.0;
-    c.add(
-      Annotation(
-        type: AnnotationType.stamp,
-        page: page,
-        points: [p - const Offset(size / 2, size / 2), p + const Offset(size / 2, size / 2)],
-        color: const Color(0xFFD32F2F),
-        text: '${s.stampLabel}\n$date\n${s.stampName}',
+  void _finishEditing() {
+    final a = _editing;
+    if (a == null) return;
+    _editing = null;
+    a.text = _editText.text;
+    if (a.text.trim().isEmpty) {
+      // Nothing typed: no annotation, and nothing to undo.
+      c.annotations.removeWhere((x) => x.id == a.id);
+      c.selectedIds.remove(a.id);
+      if (_editingNew) c.dropLastCheckpoint();
+      c.changed();
+    } else {
+      _fit(a);
+      c.changed();
+    }
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void dispose() {
+    _editText.dispose();
+    _editFocus.dispose();
+    super.dispose();
+  }
+
+  Widget _editor() {
+    final a = _editing!;
+    final s = widget.scale;
+    final pad = a.type == AnnotationType.sticky ? 4.0 : 2.0;
+    final r = a.bounds;
+    return Positioned(
+      left: r.left * s,
+      top: r.top * s,
+      width: math.max(r.width, a.type == AnnotationType.text ? 160 : r.width) * s + 40,
+      child: Container(
+        decoration: BoxDecoration(border: Border.all(color: const Color(0xFF1E88E5), width: 1)),
+        padding: EdgeInsets.all(pad * s - 1),
+        child: CallbackShortcuts(
+          bindings: {
+            const SingleActivator(LogicalKeyboardKey.escape): _finishEditing,
+            const SingleActivator(LogicalKeyboardKey.enter, control: true): _finishEditing,
+          },
+          child: TextField(
+            controller: _editText,
+            focusNode: _editFocus,
+            maxLines: null,
+            cursorColor: a.color,
+            style: textStyleOf(a, color: a.color).copyWith(fontSize: a.fontSize * s),
+            decoration: const InputDecoration.collapsed(hintText: '', filled: false),
+            onChanged: (v) {
+              a.text = v;
+              _fit(a);
+              c.repaint.value++;
+              setState(() {});
+            },
+            onTapOutside: (_) => _finishEditing(),
+          ),
+        ),
       ),
     );
   }
 
-  Future<void> _editText(Annotation a) async {
+  /// Puts down the stamp chosen in the stamp tool's settings: a date stamp,
+  /// or a registered image such as a company seal.
+  void _createStamp(Offset p) {
+    final s = widget.settings;
+    final stamp = s.currentStamp;
+    if (stamp.isImage && stamp.image != null) {
+      final size = Size(stamp.size, stamp.size / stamp.aspect);
+      c.add(
+        Annotation(
+          type: AnnotationType.image,
+          page: page,
+          points: [p - Offset(size.width / 2, size.height / 2), p + Offset(size.width / 2, size.height / 2)],
+          image: stamp.image,
+        ),
+      );
+      return;
+    }
+    final date = DateFormat('yy.MM.dd').format(DateTime.now());
+    final size = stamp.size;
+    c.add(
+      Annotation(
+        type: AnnotationType.stamp,
+        page: page,
+        points: [p - Offset(size / 2, size / 2), p + Offset(size / 2, size / 2)],
+        color: Color(stamp.color),
+        text: '${stamp.label}\n$date\n${stamp.name}',
+      ),
+    );
+  }
+
+  Future<void> _editAnnotationText(Annotation a) async {
+    if (a.type == AnnotationType.text || a.type == AnnotationType.sticky) return _startEditing(a);
     final String? text;
     if (a.type == AnnotationType.stamp) {
       text = await promptText(context, title: tr('도장 편집 (윗줄/날짜/이름)'), initial: a.text, maxLines: 3);
@@ -368,7 +485,7 @@ class _AnnotatedPageState extends State<AnnotatedPage> {
       case 'style':
         await showAnnotationStyleDialog(context, c);
       case 'edit':
-        await _editText(hit!);
+        await _editAnnotationText(hit!);
       case 'copy':
         c.copySelected();
       case 'front':
@@ -422,7 +539,13 @@ class _AnnotatedPageState extends State<AnnotatedPage> {
                 builder: (context, _, _) => CustomPaint(
                   painter: _PageOverlayPainter(
                     scale: widget.scale,
-                    annotations: c.showAnnotations ? c.annotationsOn(page) : const [],
+                    // The text being typed is shown by the editor, not twice.
+                    annotations: c.showAnnotations
+                        ? [
+                            for (final a in c.annotationsOn(page))
+                              if (a.id == _editing?.id) a.copy()..text = '' else a,
+                          ]
+                        : const [],
                     selectedIds: c.selectedIds,
                     draft: _draft,
                     hits: [
@@ -434,6 +557,7 @@ class _AnnotatedPageState extends State<AnnotatedPage> {
               ),
             ),
           ),
+          if (_editing != null && _editing!.page == page) _editor(),
         ],
       ),
     );

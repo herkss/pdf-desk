@@ -21,6 +21,10 @@ const burnedMark = 'PDFDeskAnnotation';
 /// Attachment holding the annotations as editable data (the desk's JSON).
 const editDataName = 'PDFDesk-annotations.json';
 
+/// Exported PDFs carry the annotations as data so a desk can make them
+/// editable again. Set from the PDF 내보내기 button's settings.
+var exportEditData = true;
+
 /// Per-isolate; only used on pdfrx's worker isolate.
 pdfium_bindings.PDFium? _pdfium;
 
@@ -193,12 +197,14 @@ Future<void> flattenAnnotations(PdfDocument doc, List<Annotation> annotations) a
   final params = _FlattenParams(
     handle: await doc.useNativeDocumentHandle((h) => h),
     annotations: annotations,
-    editData: utf8.encode(
-      jsonEncode({
-        'version': 1,
-        'annotations': [for (final a in annotations) a.toJson()],
-      }),
-    ),
+    editData: !exportEditData
+        ? null
+        : utf8.encode(
+            jsonEncode({
+              'version': 1,
+              'annotations': [for (final a in annotations) a.toJson()],
+            }),
+          ),
     images: images,
     textLines: textLines,
     fontBytes: await _loadCjkFont(),

@@ -143,7 +143,11 @@ class DeskActions {
         if (e.isBinder) {
           groups.add(await ops.unbind(e.path));
         } else if (await ops.pageCountOf(e.path) > 1) {
-          groups.add(await ops.spreadPages(e.path, desk.folder));
+          groups.add(
+            desk.settings.spreadKeepsOriginal
+                ? await ops.splitPages(e.path, desk.folder)
+                : await ops.spreadPages(e.path, desk.folder),
+          );
         }
       }
       return groups;
@@ -386,16 +390,31 @@ class DeskActions {
   Future<void> delete() async {
     final docs = _sel;
     if (docs.isEmpty) return;
-    final ok = await confirm(
-      context,
-      title: tr('삭제'),
-      message: docs.length == 1
-          ? tr("'{title}'을(를) 휴지통으로 옮길까요?", {'title': docs.first.title})
-          : tr('{n}개 항목을 휴지통으로 옮길까요?', {'n': docs.length}),
-      okLabel: tr('삭제'),
-      destructive: true,
-    );
-    if (!ok || !context.mounted) return;
+    final s = desk.settings;
+    if (s.confirmDelete || !s.deleteToTrash) {
+      final ok = await confirm(
+        context,
+        title: tr('삭제'),
+        message: !s.deleteToTrash
+            ? tr('{n}개 항목을 영구히 삭제할까요? 되돌릴 수 없습니다.', {'n': docs.length})
+            : docs.length == 1
+            ? tr("'{title}'을(를) 휴지통으로 옮길까요?", {'title': docs.first.title})
+            : tr('{n}개 항목을 휴지통으로 옮길까요?', {'n': docs.length}),
+        okLabel: tr('삭제'),
+        destructive: true,
+      );
+      if (!ok || !context.mounted) return;
+    }
+    if (!s.deleteToTrash) {
+      await runBusy(context, tr('삭제하는 중…'), () async {
+        for (final e in docs) {
+          await deleteDocument(e.path);
+        }
+        return true;
+      });
+      await _done();
+      return;
+    }
     final trash = Trash(desk.settings.rootPath);
     final positions = {for (final e in docs) e.fileName: desk.positionOf(e)};
     final items = await runBusy(context, tr('삭제하는 중…'), () async {

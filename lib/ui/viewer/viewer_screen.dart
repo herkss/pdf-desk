@@ -14,6 +14,7 @@ import '../common/toolbar.dart';
 import '../../models/annotation.dart';
 import 'annotation_style.dart';
 import 'page_sidebar.dart';
+import 'tool_settings.dart';
 import 'pages_view.dart';
 import 'viewer_controller.dart';
 import '../common/app_theme.dart';
@@ -406,8 +407,14 @@ class _ViewerScreenState extends State<ViewerScreen> {
   }
 
   Widget _toolbar(ViewerController c) {
-    Widget tool(Tool t, IconData icon, String label, String tip) =>
-        ToolButton(icon: icon, label: label, tooltip: tip, active: c.tool == t, onPressed: () => c.setTool(t));
+    Widget tool(Tool t, IconData icon, String label, String tip) => ToolButton(
+      icon: icon,
+      label: label,
+      tooltip: tip,
+      active: c.tool == t,
+      onPressed: () => c.setTool(t),
+      onSettings: (r) => showToolSettings(context, c, widget.settings, t, r),
+    );
     return ToolbarRow(
       items: [
         ToolButton(icon: Icons.arrow_back, label: tr('데스크'), onPressed: () => Navigator.pop(context)),

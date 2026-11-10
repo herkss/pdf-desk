@@ -13,13 +13,19 @@ import 'viewer_controller.dart';
 /// Renders [region] (page points) of [page] with its annotations into an
 /// image annotation of the same size and place, and collects the page text
 /// inside it. Null if the page can't be rendered.
-Future<(Annotation, String)?> copyPageRegion(ViewerController c, int page, Rect region) async {
+Future<(Annotation, String)?> copyPageRegion(
+  ViewerController c,
+  int page,
+  Rect region, {
+  double dpi = 200,
+  bool withAnnotations = true,
+}) async {
   final pdfPage = c.pages[page];
   final size = c.pageSize(page);
   final r = region.intersect(Offset.zero & size);
   if (r.isEmpty) return null;
-  // About 200 dpi, but no side over 3000 px.
-  final scale = math.min(200 / 72, 3000 / math.max(r.width, r.height));
+  // [dpi], but no side over 4000 px.
+  final scale = math.min(dpi / 72, 4000 / math.max(r.width, r.height));
   final w = (r.width * scale).round(), h = (r.height * scale).round();
   final rendered = await pdfPage.render(
     x: (r.left * scale).round(),
@@ -41,8 +47,10 @@ Future<(Annotation, String)?> copyPageRegion(ViewerController c, int page, Rect 
   canvas
     ..scale(scale)
     ..translate(-r.left, -r.top);
-  for (final a in c.annotationsOn(page)) {
-    if (a.bounds.overlaps(r.inflate(a.strokeWidth))) paintAnnotation(canvas, a);
+  if (withAnnotations) {
+    for (final a in c.annotationsOn(page)) {
+      if (a.bounds.overlaps(r.inflate(a.strokeWidth))) paintAnnotation(canvas, a);
+    }
   }
   final picture = recorder.endRecording();
   final composed = await picture.toImage(w, h);

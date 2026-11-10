@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:pdfrx/pdfrx.dart';
@@ -7,6 +9,8 @@ import 'services/settings.dart';
 import 'ui/common/annotation_painter.dart' show annotationFontFallback, annotationFontFamily;
 import 'ui/common/app_theme.dart';
 import 'ui/desk/desk_screen.dart';
+import 'ui/desk/desk_tool_settings.dart';
+import 'ui/viewer/tool_style.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -19,6 +23,16 @@ class PdfDeskApp extends StatelessWidget {
   PdfDeskApp({super.key, required this.settings}) {
     appLanguage.value = AppLanguage.byCode(settings.language);
     appTheme.value = AppTheme.byName(settings.theme);
+    loadToolStyles(settings.toolStyles);
+    applyDeskSettings(settings);
+    Timer? save;
+    toolStylesChanged = () {
+      save?.cancel();
+      save = Timer(const Duration(milliseconds: 500), () {
+        settings.toolStyles = toolStylesToJson();
+        settings.save();
+      });
+    };
   }
 
   final Settings settings;

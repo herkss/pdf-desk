@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../l10n/l10n.dart';
 import 'app_theme.dart';
 
 /// Horizontal toolbar that scrolls when the window is too narrow.
@@ -51,6 +52,7 @@ class ToolButton extends StatelessWidget {
     required this.onPressed,
     this.active = false,
     this.tooltip,
+    this.onSettings,
   });
 
   final IconData icon;
@@ -59,14 +61,28 @@ class ToolButton extends StatelessWidget {
   final bool active;
   final String? tooltip;
 
+  /// Right-click: the button's settings, shown next to [anchor] (the
+  /// button's place on screen).
+  final void Function(Rect anchor)? onSettings;
+
   @override
   Widget build(BuildContext context) {
-    final button = InkWell(
+    Widget button = InkWell(
       onTap: onPressed,
       borderRadius: BorderRadius.circular(9),
       child: ToolButtonFace(icon: icon, label: label, enabled: onPressed != null, active: active),
     );
-    return tooltip == null ? button : Tooltip(message: tooltip, child: button);
+    if (onSettings != null) {
+      button = GestureDetector(
+        onSecondaryTapUp: (_) {
+          final box = context.findRenderObject() as RenderBox;
+          onSettings!(box.localToGlobal(Offset.zero) & box.size);
+        },
+        child: button,
+      );
+    }
+    final tip = onSettings == null ? tooltip : '${tooltip ?? label}\n${tr('우클릭: 설정')}';
+    return tip == null ? button : Tooltip(message: tip, child: button);
   }
 }
 

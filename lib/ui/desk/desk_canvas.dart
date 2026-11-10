@@ -494,7 +494,32 @@ class _DeskItemState extends State<_DeskItem> {
     final paths = d.data.paths;
     final keys = HardwareKeyboard.instance;
     final copy = keys.isControlPressed || keys.isMetaPressed;
-    if (copy || keys.isShiftPressed) {
+    // What a plain drop does is set on the 겹치기 button (right-click).
+    var place = keys.isShiftPressed || desk.settings.dropAction == 'place';
+    if (!copy && !place && desk.settings.dropAction == 'ask' && !entry.isBinder) {
+      final box = context.findRenderObject() as RenderBox;
+      final at = box.localToGlobal(box.size.center(Offset.zero));
+      final choice = await showMenu<String>(
+        context: context,
+        position: RelativeRect.fromLTRB(at.dx, at.dy, at.dx, at.dy),
+        items: [
+          PopupMenuItem(value: 'stack', child: Text(tr('겹치기 (뒤에 붙이기)'))),
+          PopupMenuItem(value: 'place', child: Text(tr('위에 놓기만'))),
+          PopupMenuItem(value: 'copy', child: Text(tr('여기에 복사'))),
+        ],
+      );
+      if (choice == null || !mounted) return;
+      if (choice == 'place') place = true;
+      if (choice == 'copy') {
+        final grabbed = desk.entries.where((e) => e.path == paths.first).firstOrNull;
+        if (grabbed == null) return;
+        await widget
+            .actions(context)
+            .copyDragged(paths, desk.positionOf(entry) + const Offset(24, 24) - desk.positionOf(grabbed));
+        return;
+      }
+    }
+    if (copy || place) {
       final grabbed = desk.entries.where((e) => e.path == paths.first).firstOrNull;
       if (grabbed == null) return;
       final origin = (context.findRenderObject() as RenderBox).localToGlobal(Offset.zero);

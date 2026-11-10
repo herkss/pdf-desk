@@ -11,8 +11,9 @@ import '../../models/annotation.dart';
 import '../../services/pdf_ops.dart';
 import '../../services/storage.dart';
 import '../common/annotation_painter.dart' show textStyleOf;
+import 'tool_style.dart';
 
-enum Tool { select, clip, pen, marker, line, arrow, rect, ellipse, text, sticky, stamp, eraser }
+export 'tool_style.dart' show Tool;
 
 const annotationColors = [
   Color(0xFFE53935), // red
@@ -49,18 +50,28 @@ class ViewerController extends ChangeNotifier {
   Object? loadError;
 
   Tool tool = Tool.select;
-  Color color = annotationColors.first;
-  Color markerColor = const Color(0xFFFDD835);
-  Color stickyColor = stickyColors.first;
-  double strokeWidth = 2;
-  double fontSize = 14;
 
-  /// Style for new shapes and text boxes.
-  Color? fill;
-  LineStyle lineStyle = LineStyle.solid;
-  String? fontFamily;
-  bool bold = false;
-  bool italic = false;
+  /// The current tool's style (each tool keeps its own, see [toolStyles]).
+  ToolStyle get style => toolStyles[tool]!;
+  Color get color => style.color;
+  double get strokeWidth => style.width;
+  double get fontSize => style.fontSize;
+  Color? get fill => style.fill;
+  LineStyle get lineStyle => style.lineStyle;
+  String? get fontFamily => style.fontFamily;
+  bool get bold => style.bold;
+  bool get italic => style.italic;
+
+  void _styleChanged() {
+    toolStylesChanged?.call();
+    notifyListeners();
+  }
+
+  /// Changes [t]'s style (from its right-click settings).
+  void editToolStyle(Tool t, void Function(ToolStyle) f) {
+    f(toolStyles[t]!);
+    _styleChanged();
+  }
 
   /// Colors picked from the full palette, newest first.
   final recentColors = <Color>[];
@@ -136,6 +147,11 @@ class ViewerController extends ChangeNotifier {
     _undo.add(_snapshot());
     if (_undo.length > 200) _undo.removeAt(0);
     _redo.clear();
+  }
+
+  /// Forgets the last [checkpoint] (an edit that came to nothing).
+  void dropLastCheckpoint() {
+    if (_undo.isNotEmpty) _undo.removeLast();
   }
 
   String? _editStart;
@@ -271,13 +287,7 @@ class ViewerController extends ChangeNotifier {
 
   /// Applies the color to the current tool and to selected annotations.
   void setColor(Color c) {
-    if (tool == Tool.marker) {
-      markerColor = c;
-    } else if (tool == Tool.sticky) {
-      stickyColor = c;
-    } else {
-      color = c;
-    }
+    style.color = c;
     _applyToSelection((a) {
       if (a.type == AnnotationType.sticky) {
         a.fill = c;
@@ -285,47 +295,47 @@ class ViewerController extends ChangeNotifier {
         a.color = c;
       }
     });
-    notifyListeners();
+    _styleChanged();
   }
 
   void setStrokeWidth(double w) {
-    strokeWidth = w;
+    style.width = w;
     _applyToSelection((a) {
       if (!a.isBoxed) a.strokeWidth = w;
     });
-    notifyListeners();
+    _styleChanged();
   }
 
   void setFontSize(double s) {
-    fontSize = s;
+    style.fontSize = s;
     _applyToSelection((a) {
       if (!a.hasText) return;
       a.fontSize = s;
       _fitText(a);
     });
-    notifyListeners();
+    _styleChanged();
   }
 
   void setFill(Color? f) {
-    fill = f;
+    style.fill = f;
     _applyToSelection((a) {
       if (a.canFill && a.type != AnnotationType.sticky) a.fill = f;
     });
-    notifyListeners();
+    _styleChanged();
   }
 
   void setLineStyle(LineStyle s) {
-    lineStyle = s;
+    style.lineStyle = s;
     _applyToSelection((a) {
       if (!a.isBoxed && a.type != AnnotationType.marker) a.lineStyle = s;
     });
-    notifyListeners();
+    _styleChanged();
   }
 
   void setFont({String? family, bool? bold, bool? italic}) {
-    if (family != null) fontFamily = family;
-    if (bold != null) this.bold = bold;
-    if (italic != null) this.italic = italic;
+    if (family != null) style.fontFamily = family;
+    if (bold != null) style.bold = bold;
+    if (italic != null) style.italic = italic;
     _applyToSelection((a) {
       if (!a.hasText) return;
       if (family != null) a.fontFamily = family;
@@ -333,7 +343,7 @@ class ViewerController extends ChangeNotifier {
       if (italic != null) a.italic = italic;
       _fitText(a);
     });
-    notifyListeners();
+    _styleChanged();
   }
 
   /// Text boxes grow or shrink to their text when the font changes.
@@ -368,11 +378,7 @@ class ViewerController extends ChangeNotifier {
     changed();
   }
 
-  Color get activeColor => switch (tool) {
-    Tool.marker => markerColor,
-    Tool.sticky => stickyColor,
-    _ => color,
-  };
+  Color get activeColor => style.color;
 
   void toggleAnnotations() {
     showAnnotations = !showAnnotations;
@@ -466,54 +472,71 @@ class ViewerController extends ChangeNotifier {
 
   // --- creation helpers ----------------------------------------------------
 
-  Annotation newStroke(AnnotationType type, int page, Offset at) => Annotation(
-    type: type,
-    page: page,
-    points: [at],
-    color: type == AnnotationType.marker ? markerColor : color,
-    strokeWidth: type == AnnotationType.marker ? (strokeWidth * 6).clamp(8, 30).toDouble() : strokeWidth,
-    lineStyle: type == AnnotationType.marker ? LineStyle.solid : lineStyle,
-  );
+  Annotation newStroke(AnnotationType type, int page, Offset at) {
+    final marker = type == AnnotationType.marker;
+    final st = toolStyles[marker ? Tool.marker : Tool.pen]!;
+    return Annotation(
+      type: type,
+      page: page,
+      points: [at],
+      color: st.color,
+      strokeWidth: st.width,
+      lineStyle: marker ? LineStyle.solid : st.lineStyle,
+    );
+  }
 
-  Annotation newShape(AnnotationType type, int page, Offset at) => Annotation(
-    type: type,
-    page: page,
-    points: [at, at],
-    color: color,
-    strokeWidth: strokeWidth,
-    lineStyle: lineStyle,
-    fill: type == AnnotationType.rect || type == AnnotationType.ellipse ? fill : null,
-  );
+  Annotation newShape(AnnotationType type, int page, Offset at) {
+    final st =
+        toolStyles[switch (type) {
+          AnnotationType.line => Tool.line,
+          AnnotationType.arrow => Tool.arrow,
+          AnnotationType.rect => Tool.rect,
+          _ => Tool.ellipse,
+        }]!;
+    final isLine = type == AnnotationType.line || type == AnnotationType.arrow;
+    return Annotation(
+      type: type,
+      page: page,
+      points: [at, at],
+      color: st.color,
+      strokeWidth: st.width,
+      lineStyle: st.lineStyle,
+      fill: isLine ? null : st.fill,
+      heads: isLine ? st.heads : null,
+    );
+  }
 
   Annotation newText(int page, Offset at, String text) {
+    final st = toolStyles[Tool.text]!;
     final a = Annotation(
       type: AnnotationType.text,
       page: page,
       points: [at, at],
-      color: color,
-      fill: fill,
+      color: st.color,
+      fill: st.fill,
       text: text,
-      fontSize: fontSize,
-      fontFamily: fontFamily,
-      bold: bold,
-      italic: italic,
+      fontSize: st.fontSize,
+      fontFamily: st.fontFamily,
+      bold: st.bold,
+      italic: st.italic,
     );
     _fitText(a);
     return a;
   }
 
   Annotation newSticky(int page, Offset at, String text) {
+    final st = toolStyles[Tool.sticky]!;
     final a = Annotation(
       type: AnnotationType.sticky,
       page: page,
       points: [at, at],
       color: Colors.black87,
-      fill: stickyColor,
+      fill: st.color,
       text: text,
-      fontSize: fontSize,
-      fontFamily: fontFamily,
-      bold: bold,
-      italic: italic,
+      fontSize: st.fontSize,
+      fontFamily: st.fontFamily,
+      bold: st.bold,
+      italic: st.italic,
     );
     final h = _textHeight(text, 140 - 8, textStyleOf(a)) + 8;
     a.points = [at, at + Offset(140, h.clamp(40, 600))];

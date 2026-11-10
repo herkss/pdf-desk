@@ -15,6 +15,7 @@ import '../common/dialogs.dart';
 import '../common/toolbar.dart';
 import 'desk_actions.dart';
 import 'desk_canvas.dart';
+import 'desk_tool_settings.dart';
 import 'disk_tree.dart';
 import 'folder_tree.dart';
 import 'preview_pane.dart';
@@ -312,6 +313,7 @@ class _DeskScreenState extends State<DeskScreen> {
                                 key: _preview,
                                 entry: desk.selectedEntries.lastOrNull,
                                 onOpen: (e) => _actions(context).open(e),
+                                wheelPages: widget.settings.previewWheelPages,
                               ),
                             ),
                           ),
@@ -484,9 +486,24 @@ class _DeskScreenState extends State<DeskScreen> {
         final sel = desk.selectedEntries;
         final one = sel.length == 1;
         final docs = sel.where((e) => !e.isBinder).toList();
+        void Function(Rect) settingsOf(DeskTool t) =>
+            (r) => showDeskToolSettings(
+              context,
+              widget.settings,
+              desk,
+              t,
+              r,
+              onChanged: () => setState(() {}),
+              onPrinterSetup: VirtualPrinter.supported ? _settingsDialog : null,
+            );
         return ToolbarRow(
           items: [
-            ToolButton(icon: Icons.file_download_outlined, label: tr('가져오기'), onPressed: () => a.importFiles()),
+            ToolButton(
+              icon: Icons.file_download_outlined,
+              label: tr('가져오기'),
+              onPressed: () => a.importFiles(),
+              onSettings: settingsOf(DeskTool.import),
+            ),
             ToolButton(icon: Icons.create_new_folder_outlined, label: tr('새 폴더'), onPressed: _newFolder),
             const ToolSeparator(),
             ToolButton(icon: Icons.menu_book_outlined, label: tr('열기'), onPressed: one ? () => a.open() : null),
@@ -495,12 +512,14 @@ class _DeskScreenState extends State<DeskScreen> {
               label: tr('겹치기'),
               tooltip: tr('선택한 문서를 첫 문서 뒤에 겹쳐 하나로 만듭니다 (문서를 다른 문서 위에 끌어다 놓아도 됩니다)'),
               onPressed: sel.length > 1 ? a.stackSelection : null,
+              onSettings: settingsOf(DeskTool.stack),
             ),
             ToolButton(
               icon: Icons.view_carousel_outlined,
               label: tr('펼치기'),
               tooltip: tr('문서를 한 장씩 낱장으로 데스크에 펼칩니다'),
               onPressed: sel.isNotEmpty ? () => a.spread() : null,
+              onSettings: settingsOf(DeskTool.spread),
             ),
             ToolButton(
               icon: Icons.note_add_outlined,
@@ -534,22 +553,27 @@ class _DeskScreenState extends State<DeskScreen> {
               icon: Icons.picture_as_pdf_outlined,
               label: tr('PDF 내보내기'),
               onPressed: sel.isNotEmpty ? () => a.exportPdf() : null,
+              onSettings: settingsOf(DeskTool.export),
             ),
             ToolButton(
               icon: Icons.print_outlined,
               label: tr('인쇄'),
               onPressed: sel.isNotEmpty ? () => a.printDocs() : null,
+              onSettings: settingsOf(DeskTool.print),
             ),
-            ToolButton(icon: Icons.delete_outline, label: tr('삭제'), onPressed: sel.isNotEmpty ? a.delete : null),
+            ToolButton(
+              icon: Icons.delete_outline,
+              label: tr('삭제'),
+              onPressed: sel.isNotEmpty ? a.delete : null,
+              onSettings: settingsOf(DeskTool.delete),
+            ),
             const ToolSeparator(),
-            PopupMenuButton<SortMode>(
-              tooltip: tr('정렬'),
-              onSelected: desk.arrange,
-              itemBuilder: (_) => [
-                PopupMenuItem(value: SortMode.name, child: Text(tr('이름순'))),
-                PopupMenuItem(value: SortMode.modified, child: Text(tr('수정일순'))),
-              ],
-              child: ToolButtonFace(icon: Icons.grid_view, label: tr('정렬')),
+            ToolButton(
+              icon: Icons.grid_view,
+              label: tr('정렬'),
+              tooltip: tr('문서를 가지런히 놓습니다'),
+              onPressed: () => arrangeDesk(desk, widget.settings),
+              onSettings: settingsOf(DeskTool.arrange),
             ),
             ToolButton(
               icon: Icons.preview_outlined,
@@ -557,6 +581,7 @@ class _DeskScreenState extends State<DeskScreen> {
               tooltip: tr('오른쪽에 미리보기 창을 표시합니다 (←/→로 페이지 넘기기)'),
               active: widget.settings.showPreview,
               onPressed: _togglePreview,
+              onSettings: settingsOf(DeskTool.preview),
             ),
           ],
           trailing: [
