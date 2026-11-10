@@ -72,7 +72,15 @@ void main() {
     settings = Settings.at(File(p.join(tmp.path, 'settings.json')), root.path);
   });
 
-  tearDownAll(() => tmp.delete(recursive: true));
+  // On Windows the desk's folder watcher can still hold the folder open
+  // here; leaving a temp folder behind is fine.
+  tearDownAll(() async {
+    try {
+      await tmp.delete(recursive: true);
+    } on FileSystemException catch (e) {
+      debugPrint('could not remove ${tmp.path}: ${e.osError?.message}');
+    }
+  });
 
   testWidgets('desk shows documents, selects, opens viewer and annotates', (tester) async {
     tester.view.physicalSize = const Size(1600, 1000);
