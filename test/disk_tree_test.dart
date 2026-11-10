@@ -59,7 +59,9 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         theme: buildAppTheme(AppTheme.iosLight),
-        home: Scaffold(body: DiskTree(desk: desk, actions: (c) => DeskActions(c, desk))),
+        home: Scaffold(
+          body: DiskTree(desk: desk, actions: (c) => DeskActions(c, desk)),
+        ),
       ),
     );
     expect(find.text('불러오는 중…'), findsOneWidget);

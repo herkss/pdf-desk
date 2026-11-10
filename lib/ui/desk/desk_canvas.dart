@@ -6,6 +6,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../services/desk_controller.dart';
+import '../../services/drag_out.dart';
+import '../common/dialogs.dart';
 import 'desk_actions.dart';
 import 'desk_item.dart';
 import 'disk_tree.dart';
@@ -75,10 +77,15 @@ class _DeskCanvasState extends State<DeskCanvas> {
   @override
   Widget build(BuildContext context) {
     return DropTarget(
-      onDragEntered: (_) => setState(() => _osDragOver = true),
+      onDragEntered: (_) {
+        if (!DragOut.isOwnDrag(const [])) setState(() => _osDragOver = true);
+      },
       onDragExited: (_) => setState(() => _osDragOver = false),
       onDragDone: (d) {
         setState(() => _osDragOver = false);
+        // Our own documents, dragged out and dropped back on the window: the
+        // desk handles that drop itself.
+        if (DragOut.isOwnDrag([for (final f in d.files) f.path])) return;
         final at = _toContent(d.globalPosition);
         widget.actions(context).importFiles([for (final f in d.files) f.path], at);
       },
@@ -348,6 +355,34 @@ class _DeskItemState extends State<_DeskItem> {
   DateTime _lastDown = DateTime(0);
   bool _pendingDeselect = false;
 
+  /// Files for a drag out of the window, made ready when the drag starts so
+  /// they exist by the time the mouse reaches the window's edge.
+  Future<List<String>>? _outFiles;
+  bool _outStarted = false;
+
+  void _dragOut(List<String> paths) {
+    _outStarted = false;
+    _outFiles = DragOut.supported ? DragOut.prepare(paths).catchError((Object _) => <String>[]) : null;
+  }
+
+  /// At the window's edge the drag becomes a Windows file drag, so the
+  /// documents can be dropped on the desktop or into an Explorer folder.
+  Future<void> _onDragUpdate(DragUpdateDetails d) async {
+    final files = _outFiles;
+    if (files == null || _outStarted) return;
+    final size = MediaQuery.sizeOf(context);
+    final at = d.globalPosition;
+    const edge = 3.0;
+    if (at.dx > edge && at.dy > edge && at.dx < size.width - edge && at.dy < size.height - edge) return;
+    _outStarted = true;
+    final ready = await files;
+    if (ready.isEmpty || !mounted) return;
+    final dropped = await DragOut.start(ready);
+    if (dropped && mounted) {
+      showInfo(context, tr('{n}개 문서를 복사했습니다', {'n': ready.length}));
+    }
+  }
+
   void _onPointerUp(PointerUpEvent e) {
     if (!_pendingDeselect) return;
     _pendingDeselect = false;
@@ -488,7 +523,12 @@ class _DeskItemState extends State<_DeskItem> {
         onPointerDown: _onPointerDown,
         onPointerUp: _onPointerUp,
         child: Draggable<DeskDragData>(
-          onDragStarted: () => _pendingDeselect = false,
+          onDragStarted: () {
+            _pendingDeselect = false;
+            _dragOut(selected ? paths : [entry.path]);
+          },
+          onDragUpdate: _onDragUpdate,
+          onDragEnd: (_) => _outFiles = null,
           data: DeskDragData(selected ? paths : [entry.path]),
           feedback: Material(
             color: Colors.transparent,

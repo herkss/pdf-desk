@@ -103,6 +103,7 @@ const trFr = <String, String>{
   '모두 선택': 'Tout sélectionner',
   '새로 고침': 'Actualiser',
   '탐색기에서 열기': 'Ouvrir dans l\'Explorateur',
+  '{n}개 문서를 복사했습니다': '{n} document(s) copié(s)',
   '열기': 'Ouvrir',
   '겹치기 (첫 문서 뒤에 붙이기)': 'Empiler (ajouter après le premier document)',
   '새 문서로 묶기…': 'Combiner en un nouveau document…',

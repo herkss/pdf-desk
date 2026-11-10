@@ -103,6 +103,7 @@ const trEs = <String, String>{
   '모두 선택': 'Seleccionar todo',
   '새로 고침': 'Actualizar',
   '탐색기에서 열기': 'Abrir en el Explorador',
+  '{n}개 문서를 복사했습니다': 'Se copiaron {n} documentos',
   '열기': 'Abrir',
   '겹치기 (첫 문서 뒤에 붙이기)': 'Apilar (añadir tras el primer documento)',
   '새 문서로 묶기…': 'Combinar en un nuevo documento…',

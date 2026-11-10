@@ -103,6 +103,7 @@ const trEn = <String, String>{
   '모두 선택': 'Select all',
   '새로 고침': 'Refresh',
   '탐색기에서 열기': 'Open in Explorer',
+  '{n}개 문서를 복사했습니다': 'Copied {n} document(s)',
   '열기': 'Open',
   '겹치기 (첫 문서 뒤에 붙이기)': 'Stack (append to the first document)',
   '새 문서로 묶기…': 'Combine into a new document…',

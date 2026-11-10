@@ -79,6 +79,11 @@ Los documentos son archivos normales en `C:\\Users\\<nombre>\\PdfDesk`. Puede ca
 - Arrastre un PDF o una imagen del disco al escritorio para moverlo dentro (`Ctrl`: copiar)
 - Arrastre documentos del escritorio a una carpeta del disco para copiarlos fuera; las anotaciones quedan grabadas y una carpeta se convierte en un solo PDF
 - Arrastre un archivo a otra carpeta del disco para moverlo (`Ctrl`: copiar)
+
+## Arrastrar hacia y desde Windows
+- Arrastre PDF o imágenes desde el Explorador o el Escritorio de Windows al escritorio para añadirlos
+- Arrastre documentos del escritorio fuera de la ventana (al Escritorio de Windows o a una carpeta abierta del Explorador) para copiarlos allí con el mismo nombre; el escritorio los conserva
+- Los documentos con anotaciones se copian con las anotaciones grabadas; una carpeta se convierte en un solo PDF
 - Clic derecho en una carpeta → `Abrir como escritorio` para trabajar directamente en ella
 - Arrastre el encabezado `Este equipo` hacia arriba o abajo para repartir la altura
 ''',
