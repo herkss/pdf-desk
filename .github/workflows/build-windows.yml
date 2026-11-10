@@ -38,7 +38,19 @@ jobs:
             Write-Output "::error title=flutter test failed::$text"
           }
           exit $code
-      - run: flutter build windows --release
+      # Compiler and linker errors are posted as an annotation too.
+      - name: flutter build windows
+        shell: pwsh
+        run: |
+          flutter build windows --release 2>&1 | Tee-Object -FilePath build.log
+          $code = $LASTEXITCODE
+          if ($code -ne 0) {
+            $text = (Get-Content build.log | Select-String -Pattern 'error|warning C|Error' | Select-Object -First 40 | ForEach-Object { $_.Line }) -join "`n"
+            if ($text.Length -gt 6000) { $text = $text.Substring(0, 6000) }
+            $text = $text -replace '%', '%25' -replace "`r", '' -replace "`n", '%0A'
+            Write-Output "::error title=flutter build failed::$text"
+          }
+          exit $code
       - uses: actions/upload-artifact@v4
         with:
           name: PdfDesk-windows-x64
