@@ -69,16 +69,20 @@ Future<int> pageCountOf(String path) async {
 /// Builds a new PDF from [refs], carrying over (and rotating/renumbering) the
 /// annotations of each source page. With [flatten], annotations are burned
 /// into the page content instead of returned.
-Future<AssembleResult> assemble(List<PageRef> refs, {bool flatten = false}) async {
-  final sources = <String, PdfDocument>{};
+///
+/// Documents already open can be passed in [opened] (they stay open).
+Future<AssembleResult> assemble(
+  List<PageRef> refs, {
+  bool flatten = false,
+  Map<String, PdfDocument> opened = const {},
+}) async {
+  final sources = <String, PdfDocument>{...opened};
   final sourceAnnotations = <String, List<Annotation>>{};
   final out = await PdfDocument.createNew(sourceName: 'new#${_uuid.v4()}');
   try {
     for (final r in refs) {
-      if (!sources.containsKey(r.path)) {
-        sources[r.path] = await openPdfInMemory(r.path);
-        sourceAnnotations[r.path] = await loadAnnotations(r.path);
-      }
+      if (!sources.containsKey(r.path)) sources[r.path] = await openPdfInMemory(r.path);
+      if (!sourceAnnotations.containsKey(r.path)) sourceAnnotations[r.path] = await loadAnnotations(r.path);
     }
     final pages = <PdfPage>[];
     final annotations = <Annotation>[];
@@ -108,7 +112,7 @@ Future<AssembleResult> assemble(List<PageRef> refs, {bool flatten = false}) asyn
     return AssembleResult(bytes, flatten ? [] : annotations);
   } finally {
     await out.dispose();
-    for (final d in sources.values) {
+    for (final d in sources.entries.where((e) => !opened.containsKey(e.key)).map((e) => e.value)) {
       await d.dispose();
     }
   }
@@ -198,6 +202,57 @@ Future<void> stackOnto(String target, List<String> sources) async {
   await Future.wait([for (final s in others) deleteSoon(s)]);
 }
 
+/// 겹치기 that can be undone, as fast as moving files: every document is
+/// opened once, the merged result is written in the target's place, and the
+/// originals are *moved* (renamed, not copied) into the undo folder — on the
+/// same drive that is instant whatever their size, and it also takes them
+/// off the desk. Returns the undo and the merged page count.
+Future<(StackUndo, int)> stackWithUndo(String folder, String target, List<String> sources) async {
+  final others = sources.where((s) => s != target).toList();
+  final docs = <String>[target];
+  for (final e in others) {
+    docs.addAll(isBinderPath(e) ? await binderDocuments(e) : [e]);
+  }
+  final opened = <String, PdfDocument>{};
+  final AssembleResult merged;
+  final int pages;
+  try {
+    final refs = <PageRef>[];
+    for (final d in docs) {
+      final doc = opened[d] ??= await openPdfInMemory(d);
+      refs.addAll([for (var i = 0; i < doc.pages.length; i++) PageRef(d, i)]);
+    }
+    pages = refs.length;
+    merged = await assemble(refs, opened: opened);
+  } finally {
+    for (final d in opened.values) {
+      await d.dispose();
+    }
+  }
+
+  final dir = await StackUndo._freshDir(folder);
+  final items = <(String, String)>[];
+  Future<void> putAside(String original, int i) async {
+    final backup = p.join(dir.path, '$i${p.extension(original)}');
+    try {
+      await moveDocument(original, backup, attempts: 3);
+    } on FileSystemException {
+      // Held by Windows: keep a copy and remove the original in the background.
+      await copyEntry(original, backup);
+      if (i > 0) await deleteSoon(original);
+    }
+    items.add((original, backup));
+  }
+
+  await putAside(target, 0);
+  await writeBytesAtomic(target, merged.bytes);
+  await saveAnnotations(target, merged.annotations);
+  for (final (i, s) in others.indexed) {
+    await putAside(s, i + 1);
+  }
+  return (StackUndo._latest = StackUndo._(dir, items), pages);
+}
+
 /// A copy of the documents involved in a 겹치기, so it can be undone. Only
 /// the most recent one is kept, in the folder's hidden metadata directory
 /// (same drive, so restoring is a rename).
@@ -214,6 +269,17 @@ class StackUndo {
 
   /// Only the latest 겹치기 can be undone; a newer one replaces its backup.
   bool get canRestore => identical(_latest, this) && _dir.existsSync();
+
+  /// A new, empty undo folder; older ones are cleared as far as Windows lets.
+  static Future<Directory> _freshDir(String folder) async {
+    final root = Directory(p.join(metaDirOf(folder), 'undo'));
+    if (await root.exists()) {
+      await for (final old in root.list()) {
+        await _deleteQuietly(old);
+      }
+    }
+    return Directory(p.join(root.path, _uuid.v4())).create(recursive: true);
+  }
 
   static Future<StackUndo> capture(String folder, List<String> paths) async {
     final root = Directory(p.join(metaDirOf(folder), 'undo'));

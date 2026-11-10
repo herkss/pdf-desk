@@ -267,6 +267,29 @@ void main() {
     expect((await pageTexts(out)).join(' '), contains('STYLED TEXT'));
   });
 
+  test('stacking moves the originals aside and undoes exactly', () async {
+    final folder = await Directory(p.join(tmp.path, 'fast')).create();
+    final t = await makePdf(folder.path, 'T', ['T1', 'T2']);
+    final a = await makePdf(folder.path, 'A', ['A1']);
+    final b = await makePdf(folder.path, 'B', ['B1', 'B2']);
+    await saveAnnotations(a, [
+      Annotation(type: AnnotationType.pen, page: 0, points: [const Offset(1, 1), const Offset(5, 5)]),
+    ]);
+    final (undo, pages) = await ops.stackWithUndo(folder.path, t, [a, b]);
+    expect(pages, 5);
+    expect(await pageTexts(t), ['T1', 'T2', 'A1', 'B1', 'B2']);
+    expect((await loadAnnotations(t)).single.page, 2);
+    expect(File(a).existsSync() || pendingDeletes.contains(a), isFalse);
+    expect(File(b).existsSync(), isFalse);
+
+    await undo.restore();
+    expect(await pageTexts(t), ['T1', 'T2']);
+    expect(await pageTexts(a), ['A1']);
+    expect(await pageTexts(b), ['B1', 'B2']);
+    expect((await loadAnnotations(a)).single.page, 0);
+    expect(await loadAnnotations(t), isEmpty);
+  });
+
   test('an exported PDF becomes editable again when it comes back to a desk', () async {
     final a = await makePdf(tmp.path, 'Round', ['Body text']);
     await saveAnnotations(a, [

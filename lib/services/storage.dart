@@ -69,13 +69,13 @@ Future<void> saveAnnotations(String pdfPath, List<Annotation> annotations) async
 }
 
 /// Moves a document together with its annotation sidecar.
-Future<String> moveDocument(String from, String to) async {
+Future<String> moveDocument(String from, String to, {int attempts = 12}) async {
   final sidecar = File(annotationPathFor(from));
-  await _move(from, to);
+  await _move(from, to, attempts: attempts);
   if (await sidecar.exists()) {
     final dest = File(annotationPathFor(to));
     await dest.parent.create(recursive: true);
-    await _move(sidecar.path, dest.path);
+    await _move(sidecar.path, dest.path, attempts: attempts);
   }
   return to;
 }
@@ -175,17 +175,17 @@ Future<void> _deleteOnce(String path) async {
   if (await sidecar.exists()) await sidecar.delete();
 }
 
-Future<void> _move(String from, String to) async {
+Future<void> _move(String from, String to, {int attempts = 12}) async {
   if (await Directory(from).exists()) {
-    await retryFileOp(() => Directory(from).rename(to));
+    await retryFileOp(() => Directory(from).rename(to), attempts: attempts);
     return;
   }
   if (p.rootPrefix(p.absolute(from)).toLowerCase() == p.rootPrefix(p.absolute(to)).toLowerCase()) {
-    await retryFileOp(() => File(from).rename(to));
+    await retryFileOp(() => File(from).rename(to), attempts: attempts);
   } else {
     // Different drive: copy then delete.
-    await retryFileOp(() => File(from).copy(to));
-    await retryFileOp(() => File(from).delete());
+    await retryFileOp(() => File(from).copy(to), attempts: attempts);
+    await retryFileOp(() => File(from).delete(), attempts: attempts);
   }
 }
 

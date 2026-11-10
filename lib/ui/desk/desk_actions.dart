@@ -200,15 +200,11 @@ class DeskActions {
     };
     // The previous 겹치기 can't be undone any more; drop its 실행 취소 now.
     final messenger = ScaffoldMessenger.maybeOf(context)?..removeCurrentSnackBar();
-    final undo = await runBusy(context, tr('문서를 겹치는 중…'), () async {
-      final undo = await ops.StackUndo.capture(desk.folder, [target.path, ...sources]);
-      await ops.stackOnto(target.path, sources);
-      return undo;
-    });
-    if (undo == null) return;
+    final result = await runBusy(context, tr('문서를 겹치는 중…'), () => ops.stackWithUndo(desk.folder, target.path, sources));
+    if (result == null) return;
+    final (undo, pages) = result;
     await _done();
     desk.selectOnly(target);
-    final pages = await ops.pageCountOf(target.path);
     messenger
       ?..removeCurrentSnackBar()
       ..showSnackBar(
