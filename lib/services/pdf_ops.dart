@@ -36,8 +36,18 @@ class AssembleResult {
 Future<PdfDocument> openPdfInMemory(String path) async {
   // Reading into memory avoids holding a file lock on Windows, so the file can
   // be rewritten while it's open.
-  return openPdfBytes(await File(path).readAsBytes(), '$path#${_uuid.v4()}');
+  final stat = await File(path).stat();
+  final doc = await openPdfBytes(await File(path).readAsBytes(), '$path#${_uuid.v4()}');
+  _pageCounts[path] = (_stampOf(stat), doc.pages.length);
+  return doc;
 }
+
+/// Page counts by path, valid while the file's time and size stay the same:
+/// operations used to open a whole document once just to count its pages
+/// and then again to work on it.
+final _pageCounts = <String, (String, int)>{};
+
+String _stampOf(FileStat st) => '${st.modified.microsecondsSinceEpoch}|${st.size}';
 
 /// Opens PDF bytes with PDFium holding all of them in memory.
 ///
@@ -58,6 +68,8 @@ Future<PdfDocument> openPdfBytes(Uint8List bytes, String sourceName) => PdfDocum
 );
 
 Future<int> pageCountOf(String path) async {
+  final known = _pageCounts[path];
+  if (known != null && known.$1 == _stampOf(await File(path).stat())) return known.$2;
   final doc = await openPdfInMemory(path);
   try {
     return doc.pages.length;
@@ -338,16 +350,25 @@ Future<List<String>> spreadPages(String path, String folder) async {
 
 /// 분할: one document per page.
 Future<List<String>> splitPages(String path, String folder) async {
-  final n = await pageCountOf(path);
-  final base = p.basenameWithoutExtension(path);
-  final digits = math.max(2, '$n'.length);
-  final outs = <String>[];
-  for (var i = 0; i < n; i++) {
-    final out = uniquePath(folder, '${base}_${'${i + 1}'.padLeft(digits, '0')}', '.pdf');
-    await assembleTo([PageRef(path, i)], out);
-    outs.add(out);
+  // The source is opened once for all its pages (it used to be read again
+  // for every page, which made big documents spread slowly).
+  final source = await openPdfInMemory(path);
+  try {
+    final n = source.pages.length;
+    final base = p.basenameWithoutExtension(path);
+    final digits = math.max(2, '$n'.length);
+    final outs = <String>[];
+    for (var i = 0; i < n; i++) {
+      final out = uniquePath(folder, '${base}_${'${i + 1}'.padLeft(digits, '0')}', '.pdf');
+      final result = await assemble([PageRef(path, i)], opened: {path: source});
+      await writeBytesAtomic(out, result.bytes);
+      if (result.annotations.isNotEmpty) await saveAnnotations(out, result.annotations);
+      outs.add(out);
+    }
+    return outs;
+  } finally {
+    await source.dispose();
   }
-  return outs;
 }
 
 /// Imports a PDF or image into [folder]; images become one-page PDFs.
@@ -373,6 +394,8 @@ Future<String?> importFile(String source, String folder) async {
 /// such a PDF; anything else is left as it is.
 Future<bool> restoreEditable(String path) async {
   try {
+    // Only PDFs a desk exported carry the data; don't open the others.
+    if (!_mentions(await File(path).readAsBytes(), editDataName)) return false;
     final doc = await openPdfInMemory(path);
     try {
       final annotations = await takeBackAnnotations(doc);
@@ -392,6 +415,25 @@ Future<bool> restoreEditable(String path) async {
 /// Imported images are fitted to an A4 page; otherwise they keep their size
 /// at 96 dpi. Set from the 가져오기 button's settings.
 var importImagesFitA4 = true;
+
+/// Whether [bytes] contain [text] as ASCII or as UTF-16 (big-endian, as PDF
+/// strings with non-Latin text are stored).
+bool _mentions(Uint8List bytes, String text) {
+  bool find(List<int> needle) {
+    final first = needle.first;
+    for (var i = bytes.indexOf(first); i >= 0 && i <= bytes.length - needle.length; i = bytes.indexOf(first, i + 1)) {
+      var j = 1;
+      while (j < needle.length && bytes[i + j] == needle[j]) {
+        j++;
+      }
+      if (j == needle.length) return true;
+    }
+    return false;
+  }
+
+  final ascii = text.codeUnits;
+  return find(ascii) || find([for (final c in ascii) ...[0, c]]);
+}
 
 /// Wraps an image in a single-page PDF sized to fit A4 (portrait or landscape).
 Future<Uint8List> imageToPdf(Uint8List data, String name) async {

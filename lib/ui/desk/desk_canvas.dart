@@ -178,12 +178,7 @@ class _DeskCanvasState extends State<DeskCanvas> {
                     child: Stack(
                       children: [
                         Positioned.fill(child: _background(context)),
-                        for (final e in entries)
-                          Positioned(
-                            left: desk.positionOf(e).dx,
-                            top: desk.positionOf(e).dy,
-                            child: _DeskItem(key: ValueKey(e.path), entry: e, desk: desk, actions: widget.actions),
-                          ),
+                        for (final e in entries) _placed(e),
                         if (_band == null) ?_selectionBar(context, entries),
                         if (_band != null)
                           Positioned.fromRect(
@@ -209,6 +204,38 @@ class _DeskCanvasState extends State<DeskCanvas> {
       ),
     );
   }
+
+  /// A document at its place. Spread sheets first appear on the original
+  /// (see [DeskController.spawnFrom]) and are dealt out to their places one
+  /// after another; arranging and undo glide too.
+  Widget _placed(DeskEntry e) {
+    if (desk.spawnFrom.isEmpty) _spawned.clear();
+    final spawn = desk.spawnFrom[e.fileName];
+    if (spawn != null && !_spawnScheduled) {
+      _spawnScheduled = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _spawnScheduled = false;
+        if (!mounted) return;
+        setState(() => _spawned.addAll(desk.spawnFrom.keys));
+      });
+    }
+    final starting = spawn != null && !_spawned.contains(e.fileName);
+    final pos = starting ? spawn.$1 : desk.positionOf(e);
+    final turn = spawn?.$2 ?? 0;
+    return AnimatedPositioned(
+      key: ValueKey('pos:${e.path}'),
+      duration: starting || !desk.animating ? Duration.zero : Duration(milliseconds: 280 + math.min(turn, 24) * 35),
+      curve: Curves.easeOutCubic,
+      left: pos.dx,
+      top: pos.dy,
+      child: _DeskItem(key: ValueKey(e.path), entry: e, desk: desk, actions: widget.actions),
+    );
+  }
+
+  bool _spawnScheduled = false;
+
+  /// Sheets that have left their starting point.
+  final _spawned = <String>{};
 
   /// Quick actions floating just above a multi-selection (e.g. right after
   /// band-selecting sheets): stack them, spread them, or bind them.

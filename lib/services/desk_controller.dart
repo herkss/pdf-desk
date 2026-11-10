@@ -214,16 +214,37 @@ class DeskController extends ChangeNotifier {
   void placeSpreadRows(List<List<String>> groups, Offset origin) {
     final step = gridStep;
     final maxCols = math.max(1, (1100 / step.width).floor());
-    var row = 0;
+    var row = 0, n = 0;
     for (final paths in groups) {
       for (var i = 0; i < paths.length; i++) {
         final name = p.basename(paths[i]);
         layout.positions.remove(name);
         layout.positions[name] = origin + Offset((i % maxCols) * step.width, (row + i ~/ maxCols) * step.height);
+        // Dealt out like cards: each sheet starts on the original, slightly
+        // fanned, and slides to its place a moment after the one before.
+        spawnFrom[name] = (origin + Offset(n * 3.0, n * 2.0), n++);
       }
       row += (paths.length + maxCols - 1) ~/ maxCols;
     }
+    animateLayout();
     _scheduleLayoutSave();
+  }
+
+  /// New documents that should fly in: where they start, and their turn.
+  final spawnFrom = <String, (Offset, int)>{};
+
+  /// While true, documents glide to new places (spread, arrange, undo)
+  /// instead of jumping; dragging stays immediate.
+  bool animating = false;
+  Timer? _animatingOff;
+
+  void animateLayout() {
+    animating = true;
+    _animatingOff?.cancel();
+    _animatingOff = Timer(const Duration(milliseconds: 3000), () {
+      animating = false;
+      spawnFrom.clear();
+    });
   }
 
   /// Puts [paths] on top of the pile, keeping their relative order.
@@ -340,6 +361,7 @@ class DeskController extends ChangeNotifier {
       list.sort((a, b) => sizes[b.path]!.compareTo(sizes[a.path]!));
     }
     if (descending) list = list.reversed.toList();
+    animateLayout();
     final step = gridStep;
     final cols = math.max(1, (1100 / step.width).floor());
     for (var i = 0; i < list.length; i++) {
@@ -375,6 +397,7 @@ class DeskController extends ChangeNotifier {
 
   @override
   void dispose() {
+    _animatingOff?.cancel();
     _watch?.cancel();
     _refreshDebounce?.cancel();
     _flushLayout();

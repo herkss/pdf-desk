@@ -225,6 +225,7 @@ class DeskActions {
       if (context.mounted) showError(context, e);
       return;
     }
+    desk.animateLayout();
     positions.forEach((name, pos) {
       if (pos != null) desk.layout.positions[name] = pos;
     });
