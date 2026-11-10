@@ -16,7 +16,8 @@ jobs:
           cache: true
       - run: flutter pub get
       - run: flutter analyze
-      - run: flutter test
+      # The github reporter turns failures into annotations on the run page.
+      - run: flutter test -r github
       - run: flutter build windows --release
       - uses: actions/upload-artifact@v4
         with:

@@ -88,6 +88,8 @@ FontChoice fontChoiceOf(String? family) =>
 /// Folders searched for font files: the Windows fonts folder (machine-wide
 /// and per-user installs) and common Linux/macOS locations.
 List<String> get _fontDirs => [
+  // Extra folder for tests (e.g. Windows font files copied elsewhere).
+  ?Platform.environment['PDFDESK_FONT_DIR'],
   if (Platform.isWindows) ...[
     p.join(Platform.environment['WINDIR'] ?? r'C:\Windows', 'Fonts'),
     if (Platform.environment['LOCALAPPDATA'] case final local?) p.join(local, 'Microsoft', 'Windows', 'Fonts'),
