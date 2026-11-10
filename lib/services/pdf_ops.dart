@@ -201,7 +201,14 @@ class StackUndo {
 
   static Future<StackUndo> capture(String folder, List<String> paths) async {
     final root = Directory(p.join(metaDirOf(folder), 'undo'));
-    if (await root.exists()) await root.delete(recursive: true);
+    // Old backups are only clutter. Windows may still hold their files (the
+    // antivirus scanning fresh copies), so clearing them must never stop
+    // the stack; whatever is left is cleared next time.
+    if (await root.exists()) {
+      await for (final old in root.list()) {
+        await _deleteQuietly(old);
+      }
+    }
     final dir = await Directory(p.join(root.path, _uuid.v4())).create(recursive: true);
     final items = <(String, String)>[];
     for (final (i, path) in paths.indexed) {
@@ -223,8 +230,15 @@ class StackUndo {
     await discard();
   }
 
-  Future<void> discard() async {
-    if (await _dir.exists()) await _dir.delete(recursive: true);
+  Future<void> discard() => _deleteQuietly(_dir);
+}
+
+/// Deletes a backup, retrying while Windows holds it, and gives up silently.
+Future<void> _deleteQuietly(FileSystemEntity e) async {
+  try {
+    if (await e.exists()) await retryFileOp(() => e.delete(recursive: true), attempts: 5);
+  } on FileSystemException {
+    // Left for the next cleanup.
   }
 }
 

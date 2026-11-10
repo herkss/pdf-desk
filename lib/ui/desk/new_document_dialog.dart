@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../services/pdf_ops.dart' show paperSizes;
 import '../../l10n/l10n.dart';
+import '../common/app_theme.dart';
 
 class NewDocument {
   NewDocument(this.name, this.size, this.pages);
@@ -42,7 +43,7 @@ Future<NewDocument?> showNewDocumentDialog(BuildContext context) {
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(tr('용지'), style: TextStyle(fontSize: 12.5, color: Colors.black54)),
+                      Text(tr('용지'), style: TextStyle(fontSize: 12.5, color: context.ink2)),
                       const SizedBox(height: 6),
                       Wrap(
                         spacing: 6,
@@ -57,7 +58,7 @@ Future<NewDocument?> showNewDocumentDialog(BuildContext context) {
                         ],
                       ),
                       const SizedBox(height: 14),
-                      Text(tr('방향'), style: TextStyle(fontSize: 12.5, color: Colors.black54)),
+                      Text(tr('방향'), style: TextStyle(fontSize: 12.5, color: context.ink2)),
                       const SizedBox(height: 6),
                       SegmentedButton<bool>(
                         segments: [
@@ -108,7 +109,7 @@ Future<NewDocument?> showNewDocumentDialog(BuildContext context) {
                         alignment: Alignment.center,
                         child: Text(
                           '${(size.width / 72 * 25.4).round()}×${(size.height / 72 * 25.4).round()}',
-                          style: const TextStyle(fontSize: 10, color: Colors.black45),
+                          style: TextStyle(fontSize: 10, color: context.ink3),
                         ),
                       ),
                     ),

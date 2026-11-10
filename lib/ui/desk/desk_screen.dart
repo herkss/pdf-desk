@@ -15,9 +15,10 @@ import '../common/dialogs.dart';
 import '../common/toolbar.dart';
 import 'desk_actions.dart';
 import 'desk_canvas.dart';
+import 'disk_tree.dart';
 import 'folder_tree.dart';
 import 'preview_pane.dart';
-import '../common/ios_theme.dart';
+import '../common/app_theme.dart';
 import '../common/language_menu.dart';
 import '../../l10n/l10n.dart';
 
@@ -34,7 +35,11 @@ class _DeskScreenState extends State<DeskScreen> {
   final _focus = FocusNode();
   final _search = TextEditingController();
   late final PrintInbox _inbox;
-  double _treeWidth = 220;
+  double _treeWidth = 240;
+
+  /// Share of the sidebar height given to the desk folders (the rest is 내 PC).
+  double _treeSplit = 0.45;
+  bool _diskOpen = true;
   double _previewWidth = 380;
   final _preview = GlobalKey<PreviewPaneState>();
   int _treeKey = 0;
@@ -60,6 +65,37 @@ class _DeskScreenState extends State<DeskScreen> {
       },
     )..start();
     _offerPrinter();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _offerLeaveCloud());
+  }
+
+  /// The desk folder is inside OneDrive: offer to move it to a local folder,
+  /// since syncing holds files open and makes merging fail.
+  Future<void> _offerLeaveCloud() async {
+    final s = widget.settings;
+    if (!Settings.isCloudSynced(s.rootPath) || !mounted) return;
+    final target = await Settings.defaultRootPath();
+    if (Settings.isCloudSynced(target) || p.equals(target, s.rootPath) || !mounted) return;
+    final ok = await confirm(
+      context,
+      title: tr('데스크 폴더 옮기기'),
+      message: tr(
+        '데스크 폴더가 OneDrive 안에 있습니다:\n{from}\n\nOneDrive가 동기화하는 동안 파일을 잡고 있어서 겹치기·저장이 "사용 중" 오류로 실패할 수 있습니다. 문서를 모두 아래 폴더로 옮길까요?\n{to}',
+        {'from': s.rootPath, 'to': target},
+      ),
+      okLabel: tr('옮기기'),
+    );
+    if (!ok || !mounted) return;
+    await desk.stopWatching();
+    if (!mounted) return;
+    final moved = await runBusy(context, tr('이동하는 중…'), () => moveDeskRoot(s.rootPath, target));
+    if (moved == null || !mounted) return;
+    s
+      ..rootPath = moved
+      ..lastFolder = moved;
+    await s.save();
+    await desk.openFolder(moved);
+    setState(() => _treeKey++);
+    if (mounted) showInfo(context, tr('데스크 폴더를 옮겼습니다: {path}', {'path': moved}));
   }
 
   /// Once, on Windows: offer the PDF Desk printer so printing from any
@@ -141,7 +177,7 @@ class _DeskScreenState extends State<DeskScreen> {
                 const SizedBox(height: 4),
                 Text(
                   tr("다른 프로그램에서 'PDF Desk' 프린터로 인쇄하면 문서가 이 데스크에 바로 놓입니다."),
-                  style: TextStyle(fontSize: 12.5, color: Colors.black54),
+                  style: TextStyle(fontSize: 12.5, color: context.ink2),
                 ),
                 _PrinterSetup(settings: s),
                 RadioGroup<bool>(
@@ -229,10 +265,7 @@ class _DeskScreenState extends State<DeskScreen> {
                       children: [
                         SizedBox(
                           width: _treeWidth,
-                          child: Container(
-                            color: IosColors.groupedBackground,
-                            child: FolderTree(key: ValueKey(_treeKey), desk: desk, actions: _actions),
-                          ),
+                          child: Container(color: context.palette.sidebar, child: _sidebar()),
                         ),
                         MouseRegion(
                           cursor: SystemMouseCursors.resizeColumn,
@@ -241,9 +274,9 @@ class _DeskScreenState extends State<DeskScreen> {
                                 setState(() => _treeWidth = (_treeWidth + d.delta.dx).clamp(140, 480)),
                             child: Container(
                               width: 5,
-                              decoration: const BoxDecoration(
-                                color: IosColors.groupedBackground,
-                                border: Border(right: iosHairline),
+                              decoration: BoxDecoration(
+                                color: context.palette.sidebar,
+                                border: Border(right: context.hairline),
                               ),
                             ),
                           ),
@@ -262,9 +295,9 @@ class _DeskScreenState extends State<DeskScreen> {
                                   setState(() => _previewWidth = (_previewWidth - d.delta.dx).clamp(240, 900)),
                               child: Container(
                                 width: 5,
-                                decoration: const BoxDecoration(
-                                  color: IosColors.groupedBackground,
-                                  border: Border(right: iosHairline),
+                                decoration: BoxDecoration(
+                                  color: context.palette.sidebar,
+                                  border: Border(right: context.hairline),
                                 ),
                               ),
                             ),
@@ -307,16 +340,16 @@ class _DeskScreenState extends State<DeskScreen> {
         final any = sel.isNotEmpty, one = sel.length == 1, multi = sel.length > 1;
         final docs = sel.where((e) => !e.isBinder).isNotEmpty;
         return Container(
-          decoration: const BoxDecoration(
-            color: IosColors.bar,
-            border: Border(bottom: iosHairline),
+          decoration: BoxDecoration(
+            color: context.palette.bar,
+            border: Border(bottom: context.hairline),
           ),
           child: Row(
             children: [
               MenuBar(
-                style: const MenuStyle(
+                style: MenuStyle(
                   elevation: WidgetStatePropertyAll(0),
-                  backgroundColor: WidgetStatePropertyAll(IosColors.bar),
+                  backgroundColor: WidgetStatePropertyAll(context.palette.bar),
                   padding: WidgetStatePropertyAll(EdgeInsets.zero),
                 ),
                 children: [
@@ -343,6 +376,7 @@ class _DeskScreenState extends State<DeskScreen> {
                       const Divider(height: 1),
                       if (VirtualPrinter.supported) item(tr("'PDF Desk' 프린터 설치/설정…"), _settingsDialog),
                       const Divider(height: 1),
+                      item(tr('휴지통…'), () => a.openTrash()),
                       item(tr('탐색기에서 열기'), () => a.revealInExplorer()),
                       item(tr('환경 설정…'), _settingsDialog),
                     ],
@@ -543,6 +577,7 @@ class _DeskScreenState extends State<DeskScreen> {
             ),
             const SizedBox(width: 8),
             IconButton(tooltip: tr('환경 설정'), icon: const Icon(Icons.settings_outlined), onPressed: _settingsDialog),
+            ThemeMenu(settings: widget.settings),
             LanguageMenu(settings: widget.settings),
           ],
         );
@@ -550,28 +585,85 @@ class _DeskScreenState extends State<DeskScreen> {
     );
   }
 
+  /// Left side: the desk's folders on top, the computer's drives below.
+  Widget _sidebar() => LayoutBuilder(
+    builder: (context, c) {
+      Widget header(String label, IconData icon, {Widget? trailing, VoidCallback? onTap}) => InkWell(
+        onTap: onTap,
+        child: Container(
+          height: 28,
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          child: Row(
+            children: [
+              Icon(icon, size: 15, color: Theme.of(context).colorScheme.primary),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  label,
+                  style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600, color: Theme.of(context).hintColor),
+                ),
+              ),
+              ?trailing,
+            ],
+          ),
+        ),
+      );
+      final top = _diskOpen ? (c.maxHeight * _treeSplit).clamp(80.0, c.maxHeight - 120) : c.maxHeight - 30;
+      return Column(
+        children: [
+          SizedBox(
+            height: top,
+            child: FolderTree(key: ValueKey(_treeKey), desk: desk, actions: _actions),
+          ),
+          // Drag the 내 PC header up or down to share the height.
+          GestureDetector(
+            onVerticalDragUpdate: _diskOpen
+                ? (d) => setState(() => _treeSplit = (_treeSplit + d.delta.dy / c.maxHeight).clamp(0.15, 0.85))
+                : null,
+            child: MouseRegion(
+              cursor: _diskOpen ? SystemMouseCursors.resizeRow : MouseCursor.defer,
+              child: DecoratedBox(
+                decoration: BoxDecoration(border: Border(top: context.hairline)),
+                child: header(
+                  tr('내 PC'),
+                  Icons.computer,
+                  trailing: Icon(_diskOpen ? Icons.expand_more : Icons.chevron_right, size: 16),
+                  onTap: () => setState(() => _diskOpen = !_diskOpen),
+                ),
+              ),
+            ),
+          ),
+          if (_diskOpen)
+            Expanded(
+              child: DiskTree(desk: desk, actions: _actions),
+            ),
+        ],
+      );
+    },
+  );
+
   Widget _statusBar() => ListenableBuilder(
     listenable: desk,
     builder: (context, _) => Container(
       height: 28,
       padding: const EdgeInsets.symmetric(horizontal: 10),
-      color: const Color(0xFFF0F2F5),
+      color: context.palette.bar,
       child: Row(
         children: [
           Expanded(
             child: Text(
               desk.folder,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 12, color: Colors.black54),
+              style: TextStyle(fontSize: 12, color: context.ink2),
             ),
           ),
           Text(
             tr('{n}개 항목', {'n': desk.entries.length}) +
                 (desk.selection.isEmpty ? '' : tr(' · {n}개 선택', {'n': desk.selection.length})),
-            style: const TextStyle(fontSize: 12, color: Colors.black54),
+            style: TextStyle(fontSize: 12, color: context.ink2),
           ),
           const SizedBox(width: 16),
-          const Icon(Icons.photo_size_select_large, size: 14, color: Colors.black45),
+          Icon(Icons.photo_size_select_large, size: 14, color: context.ink3),
           SizedBox(
             width: 140,
             child: Slider(
@@ -674,7 +766,7 @@ class _PrinterSetupState extends State<_PrinterSetup> {
           Icon(
             installed == true ? Icons.check_circle : Icons.print_disabled_outlined,
             size: 18,
-            color: installed == true ? Colors.green : Colors.black45,
+            color: installed == true ? Colors.green : context.ink3,
           ),
           const SizedBox(width: 6),
           Expanded(

@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 import '../../services/desk_controller.dart';
 import '../../services/thumbnails.dart';
 import '../common/annotation_painter.dart';
-import '../common/ios_theme.dart';
+import '../common/app_theme.dart';
 
 const _pageShadow = [BoxShadow(color: Color(0x55000000), blurRadius: 3, offset: Offset(1.5, 1.5))];
 
@@ -68,7 +68,7 @@ class _ThumbnailViewState extends State<ThumbnailView> {
           decoration: const BoxDecoration(color: Colors.white, boxShadow: _pageShadow),
           alignment: Alignment.center,
           child: _failed
-              ? const Icon(Icons.broken_image_outlined, color: Colors.black26)
+              ? Icon(Icons.broken_image_outlined, color: context.ink4)
               : const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
         ),
       );
@@ -102,7 +102,7 @@ class _ThumbnailViewState extends State<ThumbnailView> {
                   bottom: 3,
                   child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                    decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(3)),
+                    decoration: BoxDecoration(color: context.ink2, borderRadius: BorderRadius.circular(3)),
                     child: Text('${t.pageCount}p', style: const TextStyle(color: Colors.white, fontSize: 10)),
                   ),
                 ),
@@ -230,7 +230,7 @@ class DeskItemCard extends StatelessWidget {
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
               textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 11.5, height: 1.2, color: selected ? scheme.onPrimary : Colors.black87),
+              style: TextStyle(fontSize: 11.5, height: 1.2, color: selected ? scheme.onPrimary : context.ink),
             ),
           ),
         ],
@@ -273,13 +273,17 @@ class _Page extends StatelessWidget {
           child: Container(
             width: 9,
             decoration: BoxDecoration(
-              color: IosColors.blue,
+              color: Theme.of(context).colorScheme.primary,
               borderRadius: const BorderRadius.horizontal(left: Radius.circular(3)),
               boxShadow: const [BoxShadow(color: Color(0x44000000), blurRadius: 2)],
             ),
           ),
         ),
-        const Positioned(right: 2, bottom: 2, child: Icon(Icons.collections_bookmark, size: 16, color: IosColors.blue)),
+        Positioned(
+          right: 2,
+          bottom: 2,
+          child: Icon(Icons.collections_bookmark, size: 16, color: Theme.of(context).colorScheme.primary),
+        ),
       ],
     );
   }

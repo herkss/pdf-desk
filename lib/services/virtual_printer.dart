@@ -127,7 +127,11 @@ $body
       if (detail.isEmpty) return tr('관리자 권한이 필요합니다. (취소되었거나 실행하지 못했습니다)');
       return detail;
     } finally {
-      await dir.delete(recursive: true);
+      try {
+        await dir.delete(recursive: true);
+      } on FileSystemException {
+        // A temp folder left behind is harmless.
+      }
     }
   }
 }

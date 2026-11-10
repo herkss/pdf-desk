@@ -28,6 +28,9 @@ class Settings extends ChangeNotifier {
   /// UI language code (ko, ja, zh, en, es, fr).
   String language = 'ko';
 
+  /// UI theme name (see AppTheme).
+  String theme = 'iosLight';
+
   /// Where the "PDF Desk" printer writes its output.
   String get inboxPath => p.join(_file.parent.path, 'inbox');
 
@@ -48,16 +51,31 @@ class Settings extends ChangeNotifier {
       s.printerPrompted = j['printerPrompted'] as bool? ?? false;
       s.showPreview = j['showPreview'] as bool? ?? true;
       s.language = j['language'] as String? ?? 'ko';
+      s.theme = j['theme'] as String? ?? 'iosLight';
     } catch (_) {}
     if (s.rootPath.isEmpty || !Directory(s.rootPath).existsSync()) {
-      final docs = await getApplicationDocumentsDirectory();
-      s.rootPath = p.join(docs.path, 'PdfDesk');
+      s.rootPath = await defaultRootPath();
     }
     await Directory(s.rootPath).create(recursive: true);
     if (s.stampName.isEmpty) {
       s.stampName = Platform.environment['USERNAME'] ?? Platform.environment['USER'] ?? '';
     }
     return s;
+  }
+
+  /// Where the desk lives by default: `C:\Users\<name>\PdfDesk` on Windows.
+  /// Not under Documents, which OneDrive often syncs: it holds files while
+  /// uploading them, so merging and saving fail with "file in use".
+  static Future<String> defaultRootPath() async {
+    final home = Platform.isWindows ? Platform.environment['USERPROFILE'] : null;
+    if (home != null && home.isNotEmpty) return p.join(home, 'PdfDesk');
+    return p.join((await getApplicationDocumentsDirectory()).path, 'PdfDesk');
+  }
+
+  /// Whether [path] is inside a OneDrive (or other cloud-synced) folder.
+  static bool isCloudSynced(String path) {
+    final parts = p.split(path).map((s) => s.toLowerCase());
+    return parts.any((s) => s == 'onedrive' || s.startsWith('onedrive -') || s == 'dropbox' || s == 'google drive');
   }
 
   Future<void> save() async {
@@ -73,6 +91,7 @@ class Settings extends ChangeNotifier {
         'printerPrompted': printerPrompted,
         'showPreview': showPreview,
         'language': language,
+        'theme': theme,
       }),
     );
   }

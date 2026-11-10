@@ -8,7 +8,7 @@ import '../../services/pdf_ops.dart' as ops;
 import '../../services/storage.dart';
 import '../../services/thumbnails.dart';
 import '../common/annotation_painter.dart';
-import '../common/ios_theme.dart';
+import '../common/app_theme.dart';
 import '../../l10n/l10n.dart';
 
 /// Right-hand preview of the clicked document: one page at a time with its
@@ -126,7 +126,7 @@ class PreviewPaneState extends State<PreviewPane> {
   Widget build(BuildContext context) {
     final entry = widget.entry;
     return Container(
-      color: Colors.white,
+      color: context.palette.pane,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -134,10 +134,10 @@ class PreviewPaneState extends State<PreviewPane> {
             height: 34,
             padding: const EdgeInsets.symmetric(horizontal: 10),
             alignment: Alignment.centerLeft,
-            decoration: const BoxDecoration(border: Border(bottom: iosHairline)),
+            decoration: BoxDecoration(border: Border(bottom: context.hairline)),
             child: Row(
               children: [
-                const Icon(Icons.preview_outlined, size: 16, color: Colors.black54),
+                Icon(Icons.preview_outlined, size: 16, color: context.ink2),
                 const SizedBox(width: 6),
                 Expanded(
                   child: Text(
@@ -160,14 +160,14 @@ class PreviewPaneState extends State<PreviewPane> {
   Widget _body(DeskEntry? entry) {
     if (entry == null) {
       return Center(
-        child: Text(tr('문서를 클릭하면 여기에 표시됩니다'), style: TextStyle(color: Colors.black45, fontSize: 13)),
+        child: Text(tr('문서를 클릭하면 여기에 표시됩니다'), style: TextStyle(color: context.ink3, fontSize: 13)),
       );
     }
     if (_pages.isEmpty) {
       return Center(
         child: _loading
             ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2))
-            : Text(tr('미리 볼 수 없습니다'), style: TextStyle(color: Colors.black45)),
+            : Text(tr('미리 볼 수 없습니다'), style: TextStyle(color: context.ink3)),
       );
     }
     final (d, i) = _pages[_page];
@@ -216,7 +216,7 @@ class PreviewPaneState extends State<PreviewPane> {
     final binderDoc = _docs.length > 1 ? _docs[d].path.split(RegExp(r'[\\/]')).last : null;
     return Container(
       height: 44,
-      decoration: const BoxDecoration(border: Border(top: iosHairline)),
+      decoration: BoxDecoration(border: Border(top: context.hairline)),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
@@ -234,7 +234,7 @@ class PreviewPaneState extends State<PreviewPane> {
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Text('${_page + 1} / ${_pages.length}', style: const TextStyle(fontSize: 13)),
-              if (binderDoc != null) Text(binderDoc, style: const TextStyle(fontSize: 10.5, color: Colors.black45)),
+              if (binderDoc != null) Text(binderDoc, style: TextStyle(fontSize: 10.5, color: context.ink3)),
             ],
           ),
           IconButton(

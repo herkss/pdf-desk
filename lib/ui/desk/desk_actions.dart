@@ -10,8 +10,10 @@ import '../../services/desk_controller.dart';
 import '../../services/pdf_ops.dart' as ops;
 import '../../services/storage.dart';
 import '../../services/thumbnails.dart';
+import '../../services/trash.dart';
 import '../common/dialogs.dart';
 import 'new_document_dialog.dart';
+import 'trash_dialog.dart';
 import '../viewer/viewer_screen.dart';
 import '../../l10n/l10n.dart';
 
@@ -380,6 +382,7 @@ class DeskActions {
     return outs;
   }
 
+  /// 삭제: documents go to the trash (휴지통); the snackbar can undo it.
   Future<void> delete() async {
     final docs = _sel;
     if (docs.isEmpty) return;
@@ -387,19 +390,49 @@ class DeskActions {
       context,
       title: tr('삭제'),
       message: docs.length == 1
-          ? tr("'{title}'을(를) 삭제할까요?", {'title': docs.first.title})
-          : tr('{n}개 항목을 삭제할까요?', {'n': docs.length}),
+          ? tr("'{title}'을(를) 휴지통으로 옮길까요?", {'title': docs.first.title})
+          : tr('{n}개 항목을 휴지통으로 옮길까요?', {'n': docs.length}),
       okLabel: tr('삭제'),
       destructive: true,
     );
     if (!ok || !context.mounted) return;
-    await runBusy(context, tr('삭제하는 중…'), () async {
-      for (final e in docs) {
-        await deleteDocument(e.path);
-      }
-      return true;
+    final trash = Trash(desk.settings.rootPath);
+    final positions = {for (final e in docs) e.fileName: desk.positionOf(e)};
+    final items = await runBusy(context, tr('삭제하는 중…'), () async {
+      return [for (final e in docs) await trash.put(e.path)];
     });
     await _done();
+    if (items == null || !context.mounted) return;
+    ScaffoldMessenger.maybeOf(context)
+      ?..removeCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          duration: const Duration(seconds: 8),
+          content: Text(tr('휴지통으로 옮겼습니다 ({n}개)', {'n': items.length})),
+          action: SnackBarAction(
+            label: tr('실행 취소'),
+            onPressed: () async {
+              for (final item in items) {
+                final back = await trash.restore(item);
+                final pos = positions[item.name];
+                if (pos != null) desk.layout.positions[p.basename(back)] = pos;
+              }
+              desk.endMove();
+              await _done();
+            },
+          ),
+        ),
+      );
+  }
+
+  /// 휴지통: restore or permanently delete what was deleted from the desk.
+  Future<void> openTrash() async {
+    final trash = Trash(desk.settings.rootPath);
+    final restored = await showTrashDialog(context, trash);
+    if (restored.isNotEmpty) {
+      await _done();
+      desk.selectPaths(restored.where((r) => p.dirname(r) == desk.folder).toList());
+    }
   }
 
   Future<void> exportPdf([List<DeskEntry>? entries]) async {
@@ -438,6 +471,58 @@ class DeskActions {
     } else {
       await Process.run('xdg-open', [desk.folder]);
     }
+  }
+
+  /// Files dragged from the disk explorer onto the desk: PDFs are moved
+  /// here (copied with [copy]); images become PDFs and, when moving, the
+  /// original image is removed.
+  Future<void> receiveDiskFiles(List<String> files, Offset? at, {bool copy = false}) async {
+    final importable = files.where(isImportable).toList();
+    if (importable.isEmpty) {
+      showInfo(context, tr('지원하지 않는 파일입니다.'));
+      return;
+    }
+    final created = await runBusy(context, copy ? tr('복사하는 중…') : tr('이동하는 중…'), () async {
+      final out = <String>[];
+      for (final f in importable) {
+        if (p.dirname(f) == desk.folder) continue;
+        if (isPdf(f) && !copy) {
+          out.add(await moveDocument(f, uniquePath(desk.folder, p.basenameWithoutExtension(f), '.pdf')));
+          continue;
+        }
+        final r = await ops.importFile(f, desk.folder);
+        if (r == null) continue;
+        out.add(r);
+        if (!copy) await deleteDocument(f);
+      }
+      return out;
+    });
+    if (created == null) return;
+    desk.place(created, at: at);
+    await _done();
+    desk.selectPaths(created);
+  }
+
+  /// Desk documents dropped on a disk folder are copied there as ordinary
+  /// PDFs: annotations are burned in and a binder becomes one PDF, so other
+  /// programs see what the desk shows. The desk keeps its documents.
+  Future<void> copyToDiskFolder(List<String> paths, String folder) async {
+    final done = await runBusy(context, tr('복사하는 중…'), () async {
+      var n = 0;
+      for (final path in paths) {
+        final title = p.basenameWithoutExtension(path);
+        final target = uniquePath(folder, title, '.pdf');
+        if (isBinderPath(path) || (await loadAnnotations(path)).isNotEmpty) {
+          await writeBytesAtomic(target, await ops.exportFlattened([path]));
+        } else {
+          await File(path).copy(target);
+        }
+        n++;
+      }
+      return n;
+    });
+    if (done == null || !context.mounted) return;
+    showInfo(context, tr("{n}개를 '{folder}'에 복사했습니다.", {'n': done, 'folder': p.basename(folder)}));
   }
 
   Future<void> moveToFolder(List<String> paths, String folder) async {

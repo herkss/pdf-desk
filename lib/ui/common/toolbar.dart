@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import 'ios_theme.dart';
+import 'app_theme.dart';
 
 /// Horizontal toolbar that scrolls when the window is too narrow.
 class ToolbarRow extends StatelessWidget {
@@ -14,9 +14,9 @@ class ToolbarRow extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       height: 62,
-      decoration: const BoxDecoration(
-        color: IosColors.bar,
-        border: Border(bottom: iosHairline),
+      decoration: BoxDecoration(
+        color: context.palette.bar,
+        border: Border(bottom: context.hairline),
       ),
       padding: const EdgeInsets.symmetric(horizontal: 6),
       child: Row(
@@ -39,7 +39,7 @@ class ToolSeparator extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) =>
-      const VerticalDivider(width: 14, indent: 14, endIndent: 14, thickness: 0.5, color: IosColors.separator);
+      VerticalDivider(width: 14, indent: 14, endIndent: 14, thickness: 0.5, color: context.palette.separator);
 }
 
 /// Icon-over-label button, like classic document-management toolbars.
@@ -93,7 +93,7 @@ class ToolButtonFace extends StatelessWidget {
         children: [
           Icon(icon, size: 22, color: color),
           const SizedBox(height: 2),
-          Text(label, style: TextStyle(fontSize: 10.5, color: enabled ? Colors.black87 : color, letterSpacing: -0.1)),
+          Text(label, style: TextStyle(fontSize: 10.5, color: enabled ? context.ink : color, letterSpacing: -0.1)),
         ],
       ),
     );

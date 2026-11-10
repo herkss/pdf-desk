@@ -9,6 +9,7 @@ import '../common/dialogs.dart';
 import 'desk_actions.dart';
 import 'desk_canvas.dart';
 import '../../l10n/l10n.dart';
+import '../common/app_theme.dart';
 
 /// Folder tree under the workspace root. Documents dragged from the desk can
 /// be dropped on a folder to move them there.
@@ -214,7 +215,7 @@ class _FolderRow extends StatelessWidget {
                 Icon(
                   depth == 0 ? Icons.desktop_windows_outlined : (selected ? Icons.folder_open : Icons.folder),
                   size: 18,
-                  color: depth == 0 ? scheme.primary : const Color(0xFFF4B400),
+                  color: depth == 0 ? scheme.primary : context.palette.folder,
                 ),
                 const SizedBox(width: 6),
                 Expanded(

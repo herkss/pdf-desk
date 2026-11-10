@@ -96,6 +96,13 @@ class DeskController extends ChangeNotifier {
     }
   }
 
+  /// Stops watching the folder, so Windows lets go of it (before moving it).
+  Future<void> stopWatching() async {
+    await _flushLayout();
+    await _watch?.cancel();
+    _watch = null;
+  }
+
   Future<void> refresh() async {
     final dir = Directory(folder);
     if (!await dir.exists()) return;

@@ -6,6 +6,7 @@ import '../../services/fonts.dart';
 import '../common/annotation_painter.dart';
 import 'viewer_controller.dart';
 import '../../l10n/l10n.dart';
+import '../common/app_theme.dart';
 
 /// Result of the color picker: a color, or none (no background).
 class ColorChoice {
@@ -61,7 +62,10 @@ Widget _swatch(Color? color, {required bool selected, required VoidCallback onTa
     decoration: BoxDecoration(
       color: color ?? Colors.white,
       shape: BoxShape.circle,
-      border: Border.all(color: selected ? Colors.black87 : Colors.black26, width: selected ? 2.5 : 1),
+      border: Border.all(
+        color: selected ? const Color(0xFF555555) : const Color(0x66808080),
+        width: selected ? 2.5 : 1,
+      ),
     ),
     // No color: a red slash, like "none" in drawing programs.
     child: color == null ? CustomPaint(painter: _NonePainter()) : null,
@@ -116,7 +120,7 @@ Future<ColorChoice?> showColorPicker(
                 Row(children: [for (final g in _grays) cell(g)]),
                 if (recent.isNotEmpty) ...[
                   const SizedBox(height: 10),
-                  Text(tr('최근 사용한 색'), style: TextStyle(fontSize: 12, color: Colors.black54)),
+                  Text(tr('최근 사용한 색'), style: TextStyle(fontSize: 12, color: context.ink2)),
                   Row(children: [for (final c in recent) cell(c)]),
                 ],
                 const SizedBox(height: 12),
@@ -146,7 +150,7 @@ Future<ColorChoice?> showColorPicker(
                       height: 26,
                       decoration: BoxDecoration(
                         color: current ?? Colors.white,
-                        border: Border.all(color: Colors.black26),
+                        border: Border.all(color: context.ink4),
                         borderRadius: BorderRadius.circular(4),
                       ),
                     ),
@@ -247,12 +251,14 @@ class LineStyleSample extends StatelessWidget {
   final double width;
 
   @override
-  Widget build(BuildContext context) => CustomPaint(size: Size(width, 10), painter: _LineSamplePainter(style));
+  Widget build(BuildContext context) =>
+      CustomPaint(size: Size(width, 10), painter: _LineSamplePainter(style, context.ink));
 }
 
 class _LineSamplePainter extends CustomPainter {
-  _LineSamplePainter(this.style);
+  _LineSamplePainter(this.style, this.color);
   final LineStyle style;
+  final Color color;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -265,12 +271,12 @@ class _LineSamplePainter extends CustomPainter {
         ..style = PaintingStyle.stroke
         ..strokeWidth = 2
         ..strokeCap = StrokeCap.round
-        ..color = Colors.black87,
+        ..color = color,
     );
   }
 
   @override
-  bool shouldRepaint(_LineSamplePainter old) => old.style != style;
+  bool shouldRepaint(_LineSamplePainter old) => old.style != style || old.color != color;
 }
 
 const fontSizes = [8.0, 9.0, 10.0, 11.0, 12.0, 14.0, 16.0, 18.0, 20.0, 24.0, 28.0, 32.0, 36.0, 48.0, 60.0, 72.0];
@@ -349,7 +355,7 @@ Future<void> showAnnotationStyleDialog(BuildContext context, ViewerController c)
             children: [
               SizedBox(
                 width: 64,
-                child: Text(label, style: const TextStyle(fontSize: 12.5, color: Colors.black54)),
+                child: Text(label, style: TextStyle(fontSize: 12.5, color: context.ink2)),
               ),
               Flexible(child: child),
             ],

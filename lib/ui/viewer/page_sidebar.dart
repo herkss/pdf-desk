@@ -4,6 +4,7 @@ import 'package:pdfrx/pdfrx.dart';
 
 import '../common/annotation_painter.dart';
 import 'viewer_controller.dart';
+import '../common/app_theme.dart';
 
 /// Page thumbnails. Click to jump, Ctrl/Shift-click to multi-select, drag the
 /// handle to reorder, right-click for page operations.
@@ -45,7 +46,7 @@ class PageSidebar extends StatelessWidget {
     if (doc == null) return const SizedBox();
     final scheme = Theme.of(context).colorScheme;
     return Container(
-      color: const Color(0xFFF2F4F7),
+      color: context.palette.sidebar,
       child: ReorderableListView.builder(
         padding: const EdgeInsets.symmetric(vertical: 8),
         itemCount: doc.pages.length,
@@ -113,7 +114,7 @@ class PageSidebar extends StatelessWidget {
                       style: TextStyle(
                         fontSize: 11,
                         fontWeight: current ? FontWeight.bold : null,
-                        color: current ? scheme.primary : Colors.black54,
+                        color: current ? scheme.primary : context.ink2,
                       ),
                     ),
                   ],

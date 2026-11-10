@@ -5,7 +5,7 @@ import 'package:pdfrx/pdfrx.dart';
 import 'l10n/l10n.dart';
 import 'services/settings.dart';
 import 'ui/common/annotation_painter.dart' show annotationFontFallback, annotationFontFamily;
-import 'ui/common/ios_theme.dart';
+import 'ui/common/app_theme.dart';
 import 'ui/desk/desk_screen.dart';
 
 Future<void> main() async {
@@ -18,24 +18,27 @@ Future<void> main() async {
 class PdfDeskApp extends StatelessWidget {
   PdfDeskApp({super.key, required this.settings}) {
     appLanguage.value = AppLanguage.byCode(settings.language);
+    appTheme.value = AppTheme.byName(settings.theme);
   }
 
   final Settings settings;
 
   @override
   Widget build(BuildContext context) {
-    return ValueListenableBuilder(
-      valueListenable: appLanguage,
-      builder: (context, lang, _) => MaterialApp(
-        title: 'PDF Desk',
-        debugShowCheckedModeBanner: false,
-        locale: lang.locale,
-        supportedLocales: [for (final l in AppLanguage.values) l.locale],
-        localizationsDelegates: GlobalMaterialLocalizations.delegates,
-        theme: iosTheme(fontFamily: annotationFontFamily, fontFamilyFallback: annotationFontFallback),
-        // A new key rebuilds every screen, so all text switches language.
-        home: DeskScreen(key: ValueKey(lang), settings: settings),
-      ),
+    return ListenableBuilder(
+      listenable: Listenable.merge([appLanguage, appTheme]),
+      builder: (context, _) => _app(appLanguage.value, appTheme.value),
     );
   }
+
+  Widget _app(AppLanguage lang, AppTheme theme) => MaterialApp(
+    title: 'PDF Desk',
+    debugShowCheckedModeBanner: false,
+    locale: lang.locale,
+    supportedLocales: [for (final l in AppLanguage.values) l.locale],
+    localizationsDelegates: GlobalMaterialLocalizations.delegates,
+    theme: buildAppTheme(theme, fontFamily: annotationFontFamily, fontFamilyFallback: annotationFontFallback),
+    // A new key rebuilds every screen, so all text switches language.
+    home: DeskScreen(key: ValueKey(lang), settings: settings),
+  );
 }

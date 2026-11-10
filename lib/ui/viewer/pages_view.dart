@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import '../../services/settings.dart';
 import 'page_view.dart';
 import 'viewer_controller.dart';
+import '../common/app_theme.dart';
 
 const _gap = 16.0;
 
@@ -143,7 +144,7 @@ class PagesViewState extends State<PagesView> {
                 ? ScrollConfiguration.of(context)
                 : ScrollConfiguration.of(context).copyWith(dragDevices: const {}),
             child: Container(
-              color: const Color(0xFF8A9099),
+              color: context.palette.desk,
               child: Scrollbar(
                 controller: _h,
                 thumbVisibility: contentWidth > constraints.maxWidth,

@@ -92,7 +92,6 @@ Future<void> copyDocument(String from, String to) async {
 /// thumbnail reader briefly hold files open right after they're written or
 /// read; deleting or renaming during that window fails with a sharing
 /// violation even though nothing is wrong.
-@visibleForTesting
 Future<T> retryFileOp<T>(Future<T> Function() op, {int attempts = 12}) async {
   for (var i = 1; ; i++) {
     try {
@@ -253,4 +252,31 @@ Future<void> saveBinderOrder(String binderPath, List<String> docs) async {
       }),
     ),
   );
+}
+
+/// Moves the whole desk folder (documents, binders, subfolders, layout and
+/// annotations) to [to], or to "[to] (2)"… if that already has files.
+/// Returns the new path.
+Future<String> moveDeskRoot(String from, String to) async {
+  var target = to;
+  if (await Directory(target).exists() && await Directory(target).list().isEmpty == false) {
+    target = uniquePath(p.dirname(to), p.basename(to), '');
+  } else if (await Directory(target).exists()) {
+    await Directory(target).delete();
+  }
+  await Directory(p.dirname(target)).create(recursive: true);
+  try {
+    // Same drive: one rename, nothing copied.
+    await retryFileOp(() => Directory(from).rename(target), attempts: 4);
+  } on FileSystemException {
+    // Another drive, or OneDrive holding something: copy, then remove what
+    // can be removed from the old place.
+    await copyEntry(from, target);
+    try {
+      await retryFileOp(() => Directory(from).delete(recursive: true));
+    } on FileSystemException {
+      // The copy is complete; leftovers in OneDrive can be deleted by hand.
+    }
+  }
+  return target;
 }

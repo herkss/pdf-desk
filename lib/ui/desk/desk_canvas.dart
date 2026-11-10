@@ -8,7 +8,8 @@ import 'package:flutter/services.dart';
 import '../../services/desk_controller.dart';
 import 'desk_actions.dart';
 import 'desk_item.dart';
-import '../common/ios_theme.dart';
+import 'disk_tree.dart';
+import '../common/app_theme.dart';
 import '../../l10n/l10n.dart';
 
 /// Payload of an internal drag: the grabbed item first, then the rest of the
@@ -101,7 +102,7 @@ class _DeskCanvasState extends State<DeskCanvas> {
         },
         child: Container(
           decoration: BoxDecoration(
-            color: IosColors.desk,
+            color: context.palette.desk,
             border: _osDragOver ? Border.all(color: Theme.of(context).colorScheme.primary, width: 3) : null,
           ),
           child: MouseRegion(
@@ -149,43 +150,49 @@ class _DeskCanvasState extends State<DeskCanvas> {
               },
               // Ctrl + wheel zooms the desk. The listener sits inside the
               // scroll views so it gets the wheel before they scroll.
-              builder: (context, _, _) => Listener(
-                onPointerSignal: (e) {
-                  if (e is PointerScrollEvent && _ctrl && e.scrollDelta.dy != 0) {
-                    GestureBinding.instance.pointerSignalResolver.register(
-                      e,
-                      (_) => _zoomAt(e.localPosition, math.pow(0.9, e.scrollDelta.dy / 100).toDouble()),
-                    );
-                  }
-                },
-                child: SizedBox(
-                  key: _contentKey,
-                  width: w,
-                  height: h,
-                  child: Stack(
-                    children: [
-                      Positioned.fill(child: _background(context)),
-                      for (final e in entries)
-                        Positioned(
-                          left: desk.positionOf(e).dx,
-                          top: desk.positionOf(e).dy,
-                          child: _DeskItem(key: ValueKey(e.path), entry: e, desk: desk, actions: widget.actions),
-                        ),
-                      if (_band == null) ?_selectionBar(context, entries),
-                      if (_band != null)
-                        Positioned.fromRect(
-                          rect: _band!,
-                          child: IgnorePointer(
-                            child: Container(
-                              decoration: BoxDecoration(
-                                color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.12),
-                                border: Border.all(color: Theme.of(context).colorScheme.primary),
+              // Files dragged in from the 내 PC tree are moved onto the desk
+              // (Ctrl: copied).
+              builder: (context, _, _) => DragTarget<DiskDragData>(
+                onAcceptWithDetails: (d) =>
+                    widget.actions(context).receiveDiskFiles(d.data.paths, _toContent(d.offset), copy: _ctrl),
+                builder: (context, _, _) => Listener(
+                  onPointerSignal: (e) {
+                    if (e is PointerScrollEvent && _ctrl && e.scrollDelta.dy != 0) {
+                      GestureBinding.instance.pointerSignalResolver.register(
+                        e,
+                        (_) => _zoomAt(e.localPosition, math.pow(0.9, e.scrollDelta.dy / 100).toDouble()),
+                      );
+                    }
+                  },
+                  child: SizedBox(
+                    key: _contentKey,
+                    width: w,
+                    height: h,
+                    child: Stack(
+                      children: [
+                        Positioned.fill(child: _background(context)),
+                        for (final e in entries)
+                          Positioned(
+                            left: desk.positionOf(e).dx,
+                            top: desk.positionOf(e).dy,
+                            child: _DeskItem(key: ValueKey(e.path), entry: e, desk: desk, actions: widget.actions),
+                          ),
+                        if (_band == null) ?_selectionBar(context, entries),
+                        if (_band != null)
+                          Positioned.fromRect(
+                            rect: _band!,
+                            child: IgnorePointer(
+                              child: Container(
+                                decoration: BoxDecoration(
+                                  color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.12),
+                                  border: Border.all(color: Theme.of(context).colorScheme.primary),
+                                ),
                               ),
                             ),
                           ),
-                        ),
-                      if (entries.isEmpty) _emptyHint(context),
-                    ],
+                        if (entries.isEmpty) _emptyHint(context),
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -221,7 +228,7 @@ class _DeskCanvasState extends State<DeskCanvas> {
       child: Material(
         elevation: 3,
         borderRadius: BorderRadius.circular(8),
-        color: Colors.white,
+        color: context.palette.menu,
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 4),
           child: Row(
@@ -229,10 +236,7 @@ class _DeskCanvasState extends State<DeskCanvas> {
             children: [
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 6),
-                child: Text(
-                  tr('{n}개 선택', {'n': sel.length}),
-                  style: const TextStyle(fontSize: 12, color: Colors.black54),
-                ),
+                child: Text(tr('{n}개 선택', {'n': sel.length}), style: TextStyle(fontSize: 12, color: context.ink2)),
               ),
               button(Icons.layers_outlined, tr('겹치기'), tr('선택한 순서대로 하나의 문서로 합칩니다'), a.stackSelection),
               button(Icons.view_carousel_outlined, tr('펼치기'), tr('각 문서를 낱장으로 펼칩니다'), () => a.spread()),

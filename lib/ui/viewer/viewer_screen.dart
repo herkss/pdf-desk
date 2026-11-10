@@ -16,7 +16,7 @@ import 'annotation_style.dart';
 import 'page_sidebar.dart';
 import 'pages_view.dart';
 import 'viewer_controller.dart';
-import '../common/ios_theme.dart';
+import '../common/app_theme.dart';
 import '../../l10n/l10n.dart';
 
 /// Viewer/editor for a document, or for each document of a binder (tabs).
@@ -498,13 +498,13 @@ class _ViewerScreenState extends State<ViewerScreen> {
     final showDash = showStroke && c.tool != Tool.marker;
     final showFill = const {Tool.rect, Tool.ellipse, Tool.text, Tool.select}.contains(c.tool);
     final showFont = const {Tool.text, Tool.sticky, Tool.select}.contains(c.tool);
-    const label = TextStyle(fontSize: 12, color: Colors.black54);
+    final label = TextStyle(fontSize: 12, color: context.ink2);
     const gap = SizedBox(width: 16);
     return Container(
       height: 40,
-      decoration: const BoxDecoration(
-        color: IosColors.bar,
-        border: Border(bottom: iosHairline),
+      decoration: BoxDecoration(
+        color: context.palette.bar,
+        border: Border(bottom: context.hairline),
       ),
       padding: const EdgeInsets.symmetric(horizontal: 12),
       child: Row(
@@ -539,7 +539,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
                             color: c.strokeWidth == w ? Theme.of(context).colorScheme.primaryContainer : null,
                             borderRadius: BorderRadius.circular(4),
                           ),
-                          child: Container(width: 18, height: w.clamp(1, 6), color: Colors.black87),
+                          child: Container(width: 18, height: w.clamp(1, 6), color: context.ink),
                         ),
                       ),
                   ],
@@ -628,11 +628,11 @@ class _ViewerScreenState extends State<ViewerScreen> {
 
   Widget _binderTabs() => Container(
     height: 36,
-    color: const Color(0xFFE8EAF6),
+    color: context.palette.sidebar,
     child: Row(
       children: [
         const SizedBox(width: 8),
-        const Icon(Icons.collections_bookmark, size: 18, color: IosColors.blue),
+        Icon(Icons.collections_bookmark, size: 18, color: Theme.of(context).colorScheme.primary),
         const SizedBox(width: 6),
         Text(title, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
         const SizedBox(width: 12),
@@ -656,7 +656,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
                     padding: const EdgeInsets.symmetric(horizontal: 14),
                     alignment: Alignment.center,
                     decoration: BoxDecoration(
-                      color: active ? Colors.white : const Color(0xFFC5CAE9),
+                      color: active ? context.palette.pane : context.palette.separator.withValues(alpha: 0.5),
                       borderRadius: const BorderRadius.vertical(top: Radius.circular(6)),
                     ),
                     child: Text(
@@ -677,14 +677,14 @@ class _ViewerScreenState extends State<ViewerScreen> {
   Widget _statusBar(ViewerController c) => Container(
     height: 30,
     padding: const EdgeInsets.symmetric(horizontal: 10),
-    color: const Color(0xFFF0F2F5),
+    color: context.palette.bar,
     child: Row(
       children: [
         Expanded(
           child: Text(
             isBinder ? '$title › ${p.basenameWithoutExtension(c.path)}' : title,
             overflow: TextOverflow.ellipsis,
-            style: const TextStyle(fontSize: 12, color: Colors.black54),
+            style: TextStyle(fontSize: 12, color: context.ink2),
           ),
         ),
         IconButton(
