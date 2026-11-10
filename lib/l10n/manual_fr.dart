@@ -84,6 +84,7 @@ Les documents sont des fichiers ordinaires dans `C:\\Users\\<nom>\\PdfDesk`. Vou
 - Faites glisser des PDF ou des images de l'Explorateur ou du Bureau Windows vers le bureau pour les ajouter
 - Faites glisser des documents du bureau hors de la fenêtre (sur le Bureau Windows ou dans un dossier ouvert de l'Explorateur) pour les y copier sous le même nom ; le bureau les garde
 - Les documents annotés sont copiés avec les annotations incrustées ; un classeur devient un seul PDF
+- Ramenez ce PDF sur un bureau et ses annotations redeviennent **modifiables** (le PDF les transporte sous forme de données)
 - Clic droit sur un dossier → `Ouvrir comme bureau` pour travailler directement dans ce dossier
 - Faites glisser l'en-tête `Ce PC` vers le haut ou le bas pour partager la hauteur
 ''',

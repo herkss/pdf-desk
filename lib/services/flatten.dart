@@ -14,6 +14,13 @@ import '../models/annotation.dart';
 import '../ui/common/annotation_painter.dart' show arrowHead, dashPattern, stampLines, textStyleOf;
 import 'fonts.dart';
 
+/// Marked-content tag on every object the desk burns into a page, so the
+/// drawings can be taken out again when the PDF comes back to a desk.
+const burnedMark = 'PDFDeskAnnotation';
+
+/// Attachment holding the annotations as editable data (the desk's JSON).
+const editDataName = 'PDFDesk-annotations.json';
+
 /// Per-isolate; only used on pdfrx's worker isolate.
 pdfium_bindings.PDFium? _pdfium;
 
@@ -186,6 +193,12 @@ Future<void> flattenAnnotations(PdfDocument doc, List<Annotation> annotations) a
   final params = _FlattenParams(
     handle: await doc.useNativeDocumentHandle((h) => h),
     annotations: annotations,
+    editData: utf8.encode(
+      jsonEncode({
+        'version': 1,
+        'annotations': [for (final a in annotations) a.toJson()],
+      }),
+    ),
     images: images,
     textLines: textLines,
     fontBytes: await _loadCjkFont(),
@@ -207,6 +220,7 @@ class _FlattenParams {
   _FlattenParams({
     required this.handle,
     required this.annotations,
+    required this.editData,
     required this.images,
     required this.textLines,
     required this.fontBytes,
@@ -215,6 +229,7 @@ class _FlattenParams {
   });
   final int handle;
   final List<Annotation> annotations;
+  final Uint8List? editData;
   final Map<String, _Pixels> images;
   final Map<String, List<_TextLine>> textLines;
   final Uint8List? fontBytes;
@@ -270,6 +285,17 @@ void _flattenOnWorker(_FlattenParams params) {
       }
       lib.FPDFPage_GenerateContent(page);
       lib.FPDF_ClosePage(page);
+    }
+    // The annotations as data too, so a desk can make them editable again.
+    final edit = params.editData;
+    if (edit != null) {
+      final name = _wide(editDataName, arena);
+      final att = lib.FPDFDoc_AddAttachment(fdoc, name.cast());
+      if (att != nullptr) {
+        final buf = arena<Uint8>(edit.length);
+        buf.asTypedList(edit.length).setAll(0, edit);
+        lib.FPDFAttachment_SetFile(att, fdoc, buf.cast(), edit.length);
+      }
     }
     for (final f in fonts.values.toSet()) {
       if (f != nullptr) lib.FPDFFont_Close(f);
@@ -333,7 +359,10 @@ class _Writer {
 
   List<Offset> _rectPts(Rect r) => [r.topLeft, r.topRight, r.bottomRight, r.bottomLeft];
 
-  void _insert(pdfium_bindings.FPDF_PAGEOBJECT o) => lib.FPDFPage_InsertObject(page, o);
+  void _insert(pdfium_bindings.FPDF_PAGEOBJECT o) {
+    lib.FPDFPageObj_AddMark(o, burnedMark.toNativeUtf8(allocator: arena).cast());
+    lib.FPDFPage_InsertObject(page, o);
+  }
 
   void _stroke(
     pdfium_bindings.FPDF_PAGEOBJECT o,
@@ -480,5 +509,107 @@ class _Writer {
       lib.FPDFPageObj_Transform(o, tm.a, tm.b, tm.c, tm.d, tm.e, tm.f);
       _insert(o);
     }
+  }
+}
+
+/// UTF-16 with a terminating zero, as PDFium's FPDF_WIDESTRING.
+Pointer<Uint16> _wide(String s, Arena arena) {
+  final units = s.codeUnits;
+  final p = arena<Uint16>(units.length + 1);
+  p.asTypedList(units.length + 1)
+    ..setAll(0, units)
+    ..[units.length] = 0;
+  return p;
+}
+
+/// A PDF that was exported from a desk, made editable again: the burned-in
+/// drawings are removed from its pages and the attached annotations are
+/// returned, to be saved as the document's annotation layer. Null (and the
+/// document untouched) if it has no desk annotations.
+Future<List<Annotation>?> takeBackAnnotations(PdfDocument doc) async {
+  final json = await PdfrxEntryFunctions.instance.compute(
+    _unflattenOnWorker,
+    _UnflattenParams(await doc.useNativeDocumentHandle((h) => h), Pdfrx.pdfiumModulePath),
+  );
+  if (json == null) return null;
+  try {
+    final j = jsonDecode(json) as Map<String, dynamic>;
+    return [for (final a in j['annotations'] as List) Annotation.fromJson(a as Map<String, dynamic>)];
+  } catch (_) {
+    return null;
+  }
+}
+
+class _UnflattenParams {
+  _UnflattenParams(this.handle, this.modulePath);
+  final int handle;
+  final String? modulePath;
+}
+
+String? _unflattenOnWorker(_UnflattenParams params) {
+  final lib = _pdfium ??= pdfium_bindings.getPdfium(modulePath: params.modulePath);
+  final fdoc = pdfium_bindings.FPDF_DOCUMENT.fromAddress(params.handle);
+  final arena = Arena();
+  try {
+    String wideName(int Function(Pointer<Uint16> buf, int len) get) {
+      final len = get(nullptr, 0);
+      if (len <= 2) return '';
+      final buf = arena<Uint16>(len ~/ 2);
+      get(buf, len);
+      return String.fromCharCodes(buf.asTypedList(len ~/ 2 - 1));
+    }
+
+    // The attachment with the annotation data.
+    var index = -1;
+    for (var i = 0; i < lib.FPDFDoc_GetAttachmentCount(fdoc); i++) {
+      final att = lib.FPDFDoc_GetAttachment(fdoc, i);
+      if (att == nullptr) continue;
+      final name = wideName((b, l) => lib.FPDFAttachment_GetName(att, b.cast(), l));
+      if (name == editDataName) {
+        index = i;
+        break;
+      }
+    }
+    if (index < 0) return null;
+    final att = lib.FPDFDoc_GetAttachment(fdoc, index);
+    final outLen = arena<UnsignedLong>();
+    if (lib.FPDFAttachment_GetFile(att, nullptr, 0, outLen) == 0 || outLen.value == 0) return null;
+    final size = outLen.value;
+    final data = arena<Uint8>(size);
+    lib.FPDFAttachment_GetFile(att, data.cast(), size, outLen);
+    final json = utf8.decode(data.asTypedList(size), allowMalformed: true);
+
+    // Take the burned-in drawings off every page.
+    for (var pi = 0; pi < lib.FPDF_GetPageCount(fdoc); pi++) {
+      final page = lib.FPDF_LoadPage(fdoc, pi);
+      if (page == nullptr) continue;
+      var removed = false;
+      for (var oi = lib.FPDFPage_CountObjects(page) - 1; oi >= 0; oi--) {
+        final o = lib.FPDFPage_GetObject(page, oi);
+        if (o == nullptr) continue;
+        var ours = false;
+        for (var mi = 0; mi < lib.FPDFPageObj_CountMarks(o) && !ours; mi++) {
+          final mark = lib.FPDFPageObj_GetMark(o, mi);
+          if (mark == nullptr) continue;
+          final outBytes = arena<UnsignedLong>();
+          lib.FPDFPageObjMark_GetName(mark, nullptr, 0, outBytes);
+          final n = outBytes.value;
+          if (n <= 2) continue;
+          final buf = arena<Uint16>(n ~/ 2);
+          lib.FPDFPageObjMark_GetName(mark, buf.cast(), n, outBytes);
+          ours = String.fromCharCodes(buf.asTypedList(n ~/ 2 - 1)) == burnedMark;
+        }
+        if (ours && lib.FPDFPage_RemoveObject(page, o) != 0) {
+          lib.FPDFPageObj_Destroy(o);
+          removed = true;
+        }
+      }
+      if (removed) lib.FPDFPage_GenerateContent(page);
+      lib.FPDF_ClosePage(page);
+    }
+    lib.FPDFDoc_DeleteAttachment(fdoc, index);
+    return json;
+  } finally {
+    arena.releaseAll();
   }
 }

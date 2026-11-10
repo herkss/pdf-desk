@@ -102,6 +102,7 @@ PDF Desk는 종이 문서를 책상 위에 펼쳐 놓고 일하듯 PDF를 다루
 - 탐색기나 바탕 화면의 PDF·이미지를 데스크로 끌어다 놓으면 데스크에 놓입니다
 - 반대로 데스크의 문서를 창 밖(바탕 화면이나 열어 둔 탐색기 폴더)으로 끌어 놓으면 같은 이름으로 복사됩니다. 데스크의 문서는 그대로 남습니다
 - 주석이 있는 문서는 주석이 새겨진 PDF로, 바인더는 한 PDF로 복사됩니다
+- 이렇게 내보낸 PDF를 다시 데스크로 가져오면 주석이 원래대로 **고칠 수 있는 상태**로 돌아옵니다 (PDF 안에 편집 정보가 함께 들어 있음)
 - 폴더 우클릭 → `데스크로 열기`: 그 폴더를 바로 데스크로 씁니다
 - `내 PC` 제목줄을 위아래로 끌어 두 영역의 높이를 나눕니다
 ''',
@@ -314,6 +315,7 @@ Documents are ordinary files in `C:\\Users\\<name>\\PdfDesk`. You can change it 
 - Drag PDFs or images from Explorer or the desktop onto the desk to add them
 - Drag desk documents out of the window, onto the desktop or into an open Explorer folder, to copy them there under the same name; the desk keeps them
 - Documents with annotations are copied with the annotations burned in; a binder becomes one PDF
+- Bring such a PDF back onto a desk and its annotations are **editable** again (the PDF carries them as data)
 - Right-click a folder → `Open as desk` to work on that folder directly
 - Drag the `This PC` header up or down to share the height
 ''',

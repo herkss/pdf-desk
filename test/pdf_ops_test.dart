@@ -267,6 +267,45 @@ void main() {
     expect((await pageTexts(out)).join(' '), contains('STYLED TEXT'));
   });
 
+  test('an exported PDF becomes editable again when it comes back to a desk', () async {
+    final a = await makePdf(tmp.path, 'Round', ['Body text']);
+    await saveAnnotations(a, [
+      Annotation(
+        type: AnnotationType.text,
+        page: 0,
+        points: [const Offset(50, 50), const Offset(300, 80)],
+        text: 'EDITABLE NOTE',
+      ),
+      Annotation(
+        type: AnnotationType.rect,
+        page: 0,
+        points: [const Offset(40, 300), const Offset(200, 400)],
+        fill: const Color(0x8064B5F6),
+        lineStyle: LineStyle.dashed,
+      ),
+    ]);
+    // Out to a folder: the drawings are burned in, readable anywhere.
+    final outside = await Directory(p.join(tmp.path, 'outside')).create();
+    final copy = p.join(outside.path, 'Round.pdf');
+    await File(copy).writeAsBytes(await ops.exportFlattened([a]));
+    expect((await pageTexts(copy)).join(' '), contains('EDITABLE NOTE'));
+
+    // Back onto a desk: the same annotations, editable, and not twice.
+    final desk = await Directory(p.join(tmp.path, 'desk2')).create();
+    final back = (await ops.importFile(copy, desk.path))!;
+    final notes = await loadAnnotations(back);
+    expect(notes.map((n) => n.type), [AnnotationType.text, AnnotationType.rect]);
+    expect(notes.first.text, 'EDITABLE NOTE');
+    expect(notes.last.lineStyle, LineStyle.dashed);
+    final text = (await pageTexts(back)).join(' ');
+    expect(text, contains('Body text'));
+    expect(text, isNot(contains('EDITABLE NOTE')));
+
+    // A PDF from anywhere else is left alone.
+    final plain = await makePdf(tmp.path, 'Plain', ['x']);
+    expect(await ops.restoreEditable(plain), isFalse);
+  });
+
   test('blank documents have the chosen paper', () async {
     final a4 = ops.paperSizes['A4']!;
     final out = await ops.createBlank(tmp.path, '새 문서', Size(a4.height, a4.width), pages: 3);

@@ -487,7 +487,9 @@ class DeskActions {
       for (final f in importable) {
         if (p.dirname(f) == desk.folder) continue;
         if (isPdf(f) && !copy) {
-          out.add(await moveDocument(f, uniquePath(desk.folder, p.basenameWithoutExtension(f), '.pdf')));
+          final moved = await moveDocument(f, uniquePath(desk.folder, p.basenameWithoutExtension(f), '.pdf'));
+          await ops.restoreEditable(moved);
+          out.add(moved);
           continue;
         }
         final r = await ops.importFile(f, desk.folder);

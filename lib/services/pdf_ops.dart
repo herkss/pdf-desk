@@ -270,12 +270,36 @@ Future<String?> importFile(String source, String folder) async {
   if (ext == '.pdf') {
     final out = uniquePath(folder, base, '.pdf');
     await File(source).copy(out);
+    await restoreEditable(out);
     return out;
   }
   if (!importableImageExts.contains(ext)) return null;
   final out = uniquePath(folder, base, '.pdf');
   await writeBytesAtomic(out, await imageToPdf(await File(source).readAsBytes(), source));
   return out;
+}
+
+/// A PDF exported from a desk (copied to a folder, dragged out, 내보내기)
+/// carries its annotations as data. Brought back, they become editable
+/// again: the burned-in drawings are taken off the pages and the
+/// annotations are saved as the document's layer. Returns whether it was
+/// such a PDF; anything else is left as it is.
+Future<bool> restoreEditable(String path) async {
+  try {
+    final doc = await openPdfInMemory(path);
+    try {
+      final annotations = await takeBackAnnotations(doc);
+      if (annotations == null) return false;
+      final bytes = await doc.encodePdf();
+      await writeBytesAtomic(path, bytes);
+      await saveAnnotations(path, [...await loadAnnotations(path), ...annotations]);
+      return true;
+    } finally {
+      await doc.dispose();
+    }
+  } catch (_) {
+    return false;
+  }
 }
 
 /// Wraps an image in a single-page PDF sized to fit A4 (portrait or landscape).
