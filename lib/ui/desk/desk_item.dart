@@ -102,7 +102,7 @@ class _ThumbnailViewState extends State<ThumbnailView> {
                   bottom: 3,
                   child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                    decoration: BoxDecoration(color: context.ink2, borderRadius: BorderRadius.circular(3)),
+                    decoration: BoxDecoration(color: const Color(0x8A000000), borderRadius: BorderRadius.circular(3)),
                     child: Text('${t.pageCount}p', style: const TextStyle(color: Colors.white, fontSize: 10)),
                   ),
                 ),

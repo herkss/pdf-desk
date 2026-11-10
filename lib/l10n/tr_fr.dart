@@ -22,6 +22,15 @@ const trFr = <String, String>{
   '파일을 사용 중이라 처리하지 못했습니다{name}. 다른 프로그램(PDF 뷰어, OneDrive 동기화 등)에서 열려 있지 않은지 확인한 뒤 다시 시도하세요.':
       'Le fichier est utilisé et n\'a pas pu être traité{name}. Vérifiez qu\'il n\'est pas ouvert dans un autre programme (lecteur PDF, synchronisation OneDrive…) puis réessayez.',
   '오류: {msg}': 'Erreur : {msg}',
+  '버전 {v}': 'Version {v}',
+  '종이 문서를 책상 위에 펼쳐 놓듯 PDF를 다루는 문서 관리 프로그램입니다. 겹치기·펼치기·바인더, 주석과 도장, 가상 프린터를 지원합니다.':
+      'Un gestionnaire de documents qui traite les PDF comme du papier étalé sur un bureau : empiler, étaler, classeurs, annotations et tampons, et une imprimante virtuelle.',
+  'PDF 엔진: PDFium (pdfrx) · 화면: Flutter': 'Moteur PDF : PDFium (pdfrx) · Interface : Flutter',
+  '오픈 소스 라이선스': 'Licences open source',
+  '닫기': 'Fermer',
+  '사용 설명서': 'Manuel d\'utilisation',
+  '이전': 'Précédent',
+  '다음': 'Suivant',
   '언어': 'Langue',
   '테마': 'Thème',
   '데스크로 가져오기': 'Importer sur le bureau',
@@ -143,6 +152,9 @@ const trFr = <String, String>{
   '작게 보기': 'Plus petit',
   '미리보기 창': 'Volet d\'aperçu',
   '표시': 'Affichage',
+  '단축키': 'Raccourcis clavier',
+  'PDF Desk 정보': 'À propos de PDF Desk',
+  '도움말': 'Aide',
   '가져오기': 'Importer',
   '선택한 문서를 첫 문서 뒤에 겹쳐 하나로 만듭니다 (문서를 다른 문서 위에 끌어다 놓아도 됩니다)':
       'Empile les documents sélectionnés derrière le premier en un seul (vous pouvez aussi glisser un document sur un autre)',
@@ -209,7 +221,6 @@ const trFr = <String, String>{
   '비우기': 'Vider',
   '영구 삭제': 'Supprimer définitivement',
   '복원': 'Restaurer',
-  '닫기': 'Fermer',
   '색 선택': 'Choisir une couleur',
   '최근 사용한 색': 'Couleurs récentes',
   ' 없음': ' Aucune',
@@ -236,6 +247,9 @@ const trFr = <String, String>{
   '굵게': 'Gras',
   '기울임': 'Italique',
   '글자색': 'Couleur du texte',
+  '영역을 복사했습니다. 다른 문서에서 Ctrl+V로 붙여 넣으세요.': 'Zone copiée. Collez-la dans un autre document avec Ctrl+V.',
+  '영역을 복사했습니다 (글자 {n}자 포함). 다른 문서에서 Ctrl+V로 붙여 넣으세요.':
+      'Zone copiée (avec {n} caractères de texte). Collez-la dans un autre document avec Ctrl+V.',
   '텍스트 주석': 'Note de texte',
   '부전 (스티커 메모)': 'Pense-bête',
   '도장 편집 (윗줄/날짜/이름)': 'Modifier le tampon (haut / date / nom)',
@@ -272,6 +286,9 @@ const trFr = <String, String>{
   '페이지': 'Pages',
   '선택': 'Sélection',
   '선택/이동 (Esc)': 'Sélectionner / déplacer (Échap)',
+  '영역 복사': 'Copier une zone',
+  '끌어서 고른 부분을 복사합니다. 다른 문서에서 Ctrl+V로 붙여 넣기':
+      'Copie la zone que vous faites glisser ; collez-la dans un autre document avec Ctrl+V',
   '펜': 'Stylo',
   '자유선': 'Main levée',
   '형광펜': 'Surligneur',

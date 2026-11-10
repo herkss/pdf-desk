@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' as math;
 import 'dart:ui';
 
 import 'package:flutter/foundation.dart';
@@ -11,7 +12,7 @@ import '../../services/pdf_ops.dart';
 import '../../services/storage.dart';
 import '../common/annotation_painter.dart' show textStyleOf;
 
-enum Tool { select, pen, marker, line, arrow, rect, ellipse, text, sticky, stamp, eraser }
+enum Tool { select, clip, pen, marker, line, arrow, rect, ellipse, text, sticky, stamp, eraser }
 
 const annotationColors = [
   Color(0xFFE53935), // red
@@ -77,7 +78,12 @@ class ViewerController extends ChangeNotifier {
   final _redo = <String>[];
   Timer? _saveTimer;
   bool _dirty = false;
-  List<Annotation> _clipboard = [];
+
+  /// Copied annotations, shared by all open documents so they can be pasted
+  /// into another one.
+  static List<Annotation> _clipboard = [];
+
+  static bool get hasClipboard => _clipboard.isNotEmpty;
 
   /// Repaints annotation layers without rebuilding widgets.
   final repaint = ValueNotifier(0);
@@ -233,13 +239,22 @@ class ViewerController extends ChangeNotifier {
 
   void copySelected() => _clipboard = [for (final a in selected) a.copy()];
 
+  /// Puts [items] on the clipboard (e.g. a copied region of a page).
+  static void copyToClipboard(List<Annotation> items) => _clipboard = [for (final a in items) a.copy()];
+
   void paste(int page) {
-    if (_clipboard.isEmpty) return;
+    if (_clipboard.isEmpty || page >= pages.length) return;
     checkpoint();
     selectedIds.clear();
+    final size = pageSize(page);
     for (final c in _clipboard) {
       final a = Annotation.fromJson(c.toJson()..remove('id'))..page = page;
       if (c.page == page) a.translate(const Offset(12, 12));
+      // Keep it on the page, which may be smaller than the one it came from.
+      final b = a.bounds;
+      final dx = b.right > size.width ? size.width - b.right : 0.0;
+      final dy = b.bottom > size.height ? size.height - b.bottom : 0.0;
+      a.translate(Offset(math.max(dx, -b.left), math.max(dy, -b.top)));
       annotations.add(a);
       selectedIds.add(a.id);
     }

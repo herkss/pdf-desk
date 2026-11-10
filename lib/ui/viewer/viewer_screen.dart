@@ -419,6 +419,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
         ),
         const ToolSeparator(),
         tool(Tool.select, Icons.near_me_outlined, tr('선택'), tr('선택/이동 (Esc)')),
+        tool(Tool.clip, Icons.content_cut, tr('영역 복사'), tr('끌어서 고른 부분을 복사합니다. 다른 문서에서 Ctrl+V로 붙여 넣기')),
         tool(Tool.pen, Icons.edit_outlined, tr('펜'), tr('자유선')),
         tool(Tool.marker, Icons.brush_outlined, tr('형광펜'), tr('형광펜')),
         tool(Tool.line, Icons.horizontal_rule, tr('직선'), tr('Shift: 45° 단위')),

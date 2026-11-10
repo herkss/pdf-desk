@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../../models/annotation.dart';
+import 'annotation_images.dart';
 
 /// Font for annotation text, matching the font embedded when exporting.
 const annotationFontFamily = 'Malgun Gothic';
@@ -64,7 +65,7 @@ class AnnotationPainter extends CustomPainter {
     this.selectedIds = const {},
     this.draft,
     this.repaint,
-  }) : super(repaint: repaint);
+  }) : super(repaint: Listenable.merge([repaint, AnnotationImages.instance]));
 
   final List<Annotation> annotations;
   final double scale;
@@ -164,6 +165,19 @@ void paintAnnotation(Canvas canvas, Annotation a) {
       _paintText(canvas, a, r.topLeft + const Offset(4, 4), r.width - 8);
     case AnnotationType.stamp:
       paintStamp(canvas, a.bounds, a.text, a.color);
+    case AnnotationType.image:
+      final r = a.bounds;
+      final img = a.image == null ? null : AnnotationImages.instance.get(a.image!);
+      if (img == null) {
+        canvas.drawRect(r, Paint()..color = const Color(0x22808080));
+        return;
+      }
+      canvas.drawImageRect(
+        img,
+        Rect.fromLTWH(0, 0, img.width.toDouble(), img.height.toDouble()),
+        r,
+        Paint()..filterQuality = FilterQuality.medium,
+      );
   }
 }
 

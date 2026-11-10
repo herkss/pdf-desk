@@ -1,0 +1,3 @@
+# GitHub's Windows runners are much slower than a desktop PC; PDF rendering
+# and font embedding tests can pass 30 s there on a busy day.
+timeout: 4x

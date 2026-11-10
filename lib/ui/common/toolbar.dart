@@ -82,7 +82,7 @@ class ToolButtonFace extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     // iOS bar buttons: tinted icons, gray when disabled.
-    final color = !enabled ? const Color(0x4D3C3C43) : scheme.primary;
+    final color = !enabled ? context.ink4 : scheme.primary;
     return Container(
       constraints: const BoxConstraints(minWidth: 54),
       margin: const EdgeInsets.symmetric(vertical: 5, horizontal: 1),

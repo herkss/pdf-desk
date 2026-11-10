@@ -13,6 +13,7 @@ enum AnnotationType {
   text, // 텍스트
   sticky, // 부전 (sticky note)
   stamp, // 날짜 도장
+  image, // 이미지 (영역 복사로 붙여 넣은 그림)
 }
 
 /// 선 종류.
@@ -40,6 +41,7 @@ class Annotation {
     this.fontFamily,
     this.bold = false,
     this.italic = false,
+    this.image,
   }) : id = id ?? _uuid.v4();
 
   final String id;
@@ -70,6 +72,9 @@ class Annotation {
   bool bold;
   bool italic;
 
+  /// Image: the picture as base64 PNG, drawn into [bounds].
+  String? image;
+
   bool get startHead => ((heads ?? _defaultHeads) & 1) != 0;
   bool get endHead => ((heads ?? _defaultHeads) & 2) != 0;
   int get _defaultHeads => type == AnnotationType.arrow ? 2 : 0;
@@ -81,7 +86,11 @@ class Annotation {
   /// Whether a background can be set (shapes and text boxes).
   bool get canFill => isShape || hasText;
 
-  bool get isBoxed => type == AnnotationType.text || type == AnnotationType.sticky || type == AnnotationType.stamp;
+  bool get isBoxed =>
+      type == AnnotationType.text ||
+      type == AnnotationType.sticky ||
+      type == AnnotationType.stamp ||
+      type == AnnotationType.image;
 
   bool get isFreehand => type == AnnotationType.pen || type == AnnotationType.marker;
 
@@ -112,6 +121,7 @@ class Annotation {
     fontFamily: fontFamily,
     bold: bold,
     italic: italic,
+    image: image,
   );
 
   void translate(Offset delta) {
@@ -139,6 +149,7 @@ class Annotation {
       case AnnotationType.text:
       case AnnotationType.sticky:
       case AnnotationType.stamp:
+      case AnnotationType.image:
         return bounds.inflate(2).contains(p);
     }
   }
@@ -169,6 +180,7 @@ class Annotation {
     'fontFamily': ?fontFamily,
     if (bold) 'bold': true,
     if (italic) 'italic': true,
+    'image': ?image,
   };
 
   static double _r(double v) => (v * 100).roundToDouble() / 100;
@@ -188,6 +200,7 @@ class Annotation {
     fontFamily: j['fontFamily'] as String?,
     bold: j['bold'] as bool? ?? false,
     italic: j['italic'] as bool? ?? false,
+    image: j['image'] as String?,
   );
 }
 

@@ -1,9 +1,11 @@
+import 'dart:convert';
 import 'dart:ffi';
 import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:ffi/ffi.dart';
+import 'package:image/image.dart' as img;
 import 'package:flutter/painting.dart';
 import 'package:pdfium_dart/pdfium_dart.dart' as pdfium_bindings;
 import 'package:pdfrx/pdfrx.dart';
@@ -172,9 +174,19 @@ Future<void> flattenAnnotations(PdfDocument doc, List<Annotation> annotations) a
     if (!a.hasText || (a.fontFamily == null && !a.bold && !a.italic)) continue;
     await _assignFont(a, textLines[a.id]!, fonts);
   }
+  // Image annotations as BGRA pixels, the format PDFium bitmaps take.
+  final images = <String, _Pixels>{};
+  for (final a in annotations) {
+    if (a.type != AnnotationType.image || a.image == null) continue;
+    final decoded = img.decodeImage(base64Decode(a.image!));
+    if (decoded == null) continue;
+    final rgba = decoded.convert(numChannels: 4).getBytes(order: img.ChannelOrder.bgra);
+    images[a.id] = _Pixels(decoded.width, decoded.height, rgba);
+  }
   final params = _FlattenParams(
     handle: await doc.useNativeDocumentHandle((h) => h),
     annotations: annotations,
+    images: images,
     textLines: textLines,
     fontBytes: await _loadCjkFont(),
     fonts: fonts,
@@ -185,10 +197,17 @@ Future<void> flattenAnnotations(PdfDocument doc, List<Annotation> annotations) a
   await PdfrxEntryFunctions.instance.compute(_flattenOnWorker, params);
 }
 
+class _Pixels {
+  _Pixels(this.width, this.height, this.bgra);
+  final int width, height;
+  final Uint8List bgra;
+}
+
 class _FlattenParams {
   _FlattenParams({
     required this.handle,
     required this.annotations,
+    required this.images,
     required this.textLines,
     required this.fontBytes,
     required this.fonts,
@@ -196,6 +215,7 @@ class _FlattenParams {
   });
   final int handle;
   final List<Annotation> annotations;
+  final Map<String, _Pixels> images;
   final Map<String, List<_TextLine>> textLines;
   final Uint8List? fontBytes;
 
@@ -244,7 +264,7 @@ void _flattenOnWorker(_FlattenParams params) {
         t.value = lib.FPDF_GetPageHeightF(page);
       }
       final m = _Affine.forPage(lib.FPDFPage_GetRotation(page), r.value - l.value, t.value - b.value, l.value, b.value);
-      final w = _Writer(lib, fdoc, page, fonts, m, arena);
+      final w = _Writer(lib, fdoc, page, fonts, params.images, m, arena);
       for (final a in entry.value) {
         w.draw(a, params.textLines[a.id]!);
       }
@@ -260,11 +280,12 @@ void _flattenOnWorker(_FlattenParams params) {
 }
 
 class _Writer {
-  _Writer(this.lib, this.doc, this.page, this.fonts, this.m, this.arena);
+  _Writer(this.lib, this.doc, this.page, this.fonts, this.images, this.m, this.arena);
   final pdfium_bindings.PDFium lib;
   final pdfium_bindings.FPDF_DOCUMENT doc;
   final pdfium_bindings.FPDF_PAGE page;
   final Map<String, pdfium_bindings.FPDF_FONT> fonts;
+  final Map<String, _Pixels> images;
   final _Affine m;
   final Arena arena;
 
@@ -380,6 +401,8 @@ class _Writer {
       case AnnotationType.sticky:
         _fill(_polyline(_rectPts(a.bounds), close: true), a.fill ?? const Color(0xFFFFF176));
         _text(lines, a.color);
+      case AnnotationType.image:
+        _image(a);
       case AnnotationType.stamp:
         final r = a.bounds;
         final sw = math.max(1.0, r.width / 40);
@@ -390,6 +413,37 @@ class _Writer {
           _stroke(_polyline([Offset(r.center.dx - halfChord, y), Offset(r.center.dx + halfChord, y)]), a.color, sw);
         }
         _text(lines, a.color);
+    }
+  }
+
+  /// An image object filling the annotation's bounds. Image space is the
+  /// unit square with y up, so it is scaled to the box and flipped.
+  void _image(Annotation a) {
+    final px = images[a.id];
+    if (px == null) return;
+    final buf = arena<Uint8>(px.bgra.length);
+    buf.asTypedList(px.bgra.length).setAll(0, px.bgra);
+    final bitmap = lib.FPDFBitmap_CreateEx(
+      px.width,
+      px.height,
+      pdfium_bindings.FPDFBitmap_BGRA,
+      buf.cast(),
+      px.width * 4,
+    );
+    if (bitmap == nullptr) return;
+    try {
+      final o = lib.FPDFPageObj_NewImageObj(doc);
+      if (o == nullptr) return;
+      if (lib.FPDFImageObj_SetBitmap(nullptr, 0, o, bitmap) == 0) {
+        lib.FPDFPageObj_Destroy(o);
+        return;
+      }
+      final r = a.bounds;
+      final tm = m.compose(_Affine(r.width, 0, 0, -r.height, r.left, r.bottom));
+      lib.FPDFImageObj_SetMatrix(o, tm.a, tm.b, tm.c, tm.d, tm.e, tm.f);
+      _insert(o);
+    } finally {
+      lib.FPDFBitmap_Destroy(bitmap);
     }
   }
 

@@ -11,6 +11,7 @@ import '../../services/settings.dart';
 import '../common/annotation_painter.dart';
 import '../common/dialogs.dart';
 import 'annotation_style.dart';
+import 'region_copy.dart';
 import 'viewer_controller.dart';
 import '../../l10n/l10n.dart';
 
@@ -36,7 +37,7 @@ class AnnotatedPage extends StatefulWidget {
   State<AnnotatedPage> createState() => _AnnotatedPageState();
 }
 
-enum _Drag { none, draw, move, resize, endpoint0, endpoint1 }
+enum _Drag { none, draw, clip, move, resize, endpoint0, endpoint1 }
 
 class _AnnotatedPageState extends State<AnnotatedPage> {
   Annotation? _draft;
@@ -107,6 +108,18 @@ class _AnnotatedPageState extends State<AnnotatedPage> {
       case Tool.eraser:
         _drag = _Drag.draw;
         _erase(p);
+      case Tool.clip:
+        // The dashed box being dragged out; it is never added.
+        _draft = Annotation(
+          type: AnnotationType.rect,
+          page: page,
+          points: [p, p],
+          color: const Color(0xFF1E88E5),
+          strokeWidth: 1,
+          lineStyle: LineStyle.dashed,
+          fill: const Color(0x221E88E5),
+        );
+        _drag = _Drag.clip;
     }
     c.repaint.value++;
   }
@@ -154,6 +167,8 @@ class _AnnotatedPageState extends State<AnnotatedPage> {
     final size = c.pageSize(page);
     final clamped = Offset(p.dx.clamp(0, size.width), p.dy.clamp(0, size.height));
     switch (_drag) {
+      case _Drag.clip:
+        _draft?.points[1] = clamped;
       case _Drag.draw:
         if (c.tool == Tool.eraser) {
           _erase(p);
@@ -220,6 +235,14 @@ class _AnnotatedPageState extends State<AnnotatedPage> {
   }
 
   void _onUp(PointerUpEvent e) {
+    if (_drag == _Drag.clip) {
+      final r = _draft?.bounds;
+      _draft = null;
+      _drag = _Drag.none;
+      c.repaint.value++;
+      if (r != null && r.width * widget.scale > 6 && r.height * widget.scale > 6) _copyRegion(r);
+      return;
+    }
     if (_draft != null) {
       final d = _draft!;
       _draft = null;
@@ -238,6 +261,24 @@ class _AnnotatedPageState extends State<AnnotatedPage> {
     _drag = _Drag.none;
     _dragOriginals = [];
     c.repaint.value++;
+  }
+
+  /// 영역 복사: the region as a picture (with the annotations on it) onto the
+  /// app clipboard, ready to paste into any document, and its text onto the
+  /// system clipboard for other programs.
+  Future<void> _copyRegion(Rect r) async {
+    final copied = await copyPageRegion(c, page, r);
+    if (!mounted || copied == null) return;
+    final (image, text) = copied;
+    ViewerController.copyToClipboard([image]);
+    if (text.trim().isNotEmpty) await Clipboard.setData(ClipboardData(text: text));
+    if (!mounted) return;
+    showInfo(
+      context,
+      text.trim().isEmpty
+          ? tr('영역을 복사했습니다. 다른 문서에서 Ctrl+V로 붙여 넣으세요.')
+          : tr('영역을 복사했습니다 (글자 {n}자 포함). 다른 문서에서 Ctrl+V로 붙여 넣으세요.', {'n': text.trim().length}),
+    );
   }
 
   void _erase(Offset p) {

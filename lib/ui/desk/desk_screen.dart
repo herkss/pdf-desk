@@ -19,6 +19,7 @@ import 'disk_tree.dart';
 import 'folder_tree.dart';
 import 'preview_pane.dart';
 import '../common/app_theme.dart';
+import '../common/help.dart';
 import '../common/language_menu.dart';
 import '../../l10n/l10n.dart';
 
@@ -231,6 +232,7 @@ class _DeskScreenState extends State<DeskScreen> {
       const SingleActivator(LogicalKeyboardKey.f2): a.rename,
       const SingleActivator(LogicalKeyboardKey.enter): a.open,
       const SingleActivator(LogicalKeyboardKey.f5): desk.refresh,
+      const SingleActivator(LogicalKeyboardKey.f1): () => showManual(context),
       const SingleActivator(LogicalKeyboardKey.keyA, control: true): desk.selectAll,
       const SingleActivator(LogicalKeyboardKey.keyD, control: true): a.duplicate,
       const SingleActivator(LogicalKeyboardKey.keyO, control: true): () => a.importFiles(),
@@ -451,6 +453,19 @@ class _DeskScreenState extends State<DeskScreen> {
                       item(tr('새로 고침'), desk.refresh, shortcut: const SingleActivator(LogicalKeyboardKey.f5)),
                     ],
                     child: Text(tr('표시')),
+                  ),
+                  SubmenuButton(
+                    menuChildren: [
+                      item(
+                        tr('사용 설명서'),
+                        () => showManual(context),
+                        shortcut: const SingleActivator(LogicalKeyboardKey.f1),
+                      ),
+                      item(tr('단축키'), () => showManual(context, chapter: 9)),
+                      const Divider(height: 1),
+                      item(tr('PDF Desk 정보'), () => showAbout(context)),
+                    ],
+                    child: Text(tr('도움말')),
                   ),
                 ],
               ),

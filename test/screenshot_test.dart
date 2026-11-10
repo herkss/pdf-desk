@@ -1,5 +1,6 @@
 // Renders the desk and viewer to PNGs for visual review.
 // Run: SCREENSHOT_DIR=/some/dir PDFDESK_FONT=/path/to/korean.ttf flutter test test/screenshot_test.dart
+import 'dart:async';
 import 'dart:io';
 import 'dart:ui' as ui;
 
@@ -16,7 +17,10 @@ import 'package:pdf_desk/main.dart';
 import 'package:pdf_desk/models/annotation.dart';
 import 'package:pdf_desk/services/settings.dart';
 import 'package:pdf_desk/services/storage.dart';
+import 'package:pdf_desk/ui/common/app_theme.dart';
+import 'package:pdf_desk/ui/common/help.dart';
 import 'package:pdf_desk/ui/common/language_menu.dart';
+import 'package:pdf_desk/ui/desk/desk_canvas.dart';
 import 'package:pdf_desk/ui/viewer/page_view.dart';
 
 import 'pdfium_test_setup.dart';
@@ -226,5 +230,25 @@ void main() {
     await _settle(tester, 25);
     await _shot(tester, 'desk_ja');
     appLanguage.value = AppLanguage.ko;
+    await _settle(tester, 15);
+
+    // Help, about and a dark theme.
+    final ctx = tester.element(find.byType(DeskCanvas));
+    unawaited(showManual(ctx, chapter: 5));
+    await _settle(tester, 8);
+    await _shot(tester, 'manual');
+    Navigator.of(ctx).pop();
+    await _settle(tester, 5);
+    unawaited(showAbout(ctx));
+    await _settle(tester, 12);
+    await _shot(tester, 'about');
+    Navigator.of(ctx).pop();
+    appTheme.value = AppTheme.iosDark;
+    await _settle(tester, 20);
+    await _shot(tester, 'desk_dark');
+    appTheme.value = AppTheme.paper;
+    await _settle(tester, 20);
+    await _shot(tester, 'desk_paper');
+    appTheme.value = AppTheme.iosLight;
   }, skip: _outDir == null);
 }
