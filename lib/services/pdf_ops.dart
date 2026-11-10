@@ -36,9 +36,26 @@ class AssembleResult {
 Future<PdfDocument> openPdfInMemory(String path) async {
   // Reading into memory avoids holding a file lock on Windows, so the file can
   // be rewritten while it's open.
-  final bytes = await File(path).readAsBytes();
-  return PdfDocument.openData(bytes, sourceName: '$path#${_uuid.v4()}');
+  return openPdfBytes(await File(path).readAsBytes(), '$path#${_uuid.v4()}');
 }
+
+/// Opens PDF bytes with PDFium holding all of them in memory.
+///
+/// pdfrx's `openData` does that only up to 1 MB; a bigger document is read
+/// piece by piece through a callback that, on Windows, waits for the main
+/// isolate on a condition variable with no time limit. A missed wake-up
+/// there leaves the PDF worker stuck for good — every thumbnail, preview and
+/// stack after it then spins for ever. Loading from memory never calls back.
+Future<PdfDocument> openPdfBytes(Uint8List bytes, String sourceName) => PdfDocument.openCustom(
+  read: (buffer, position, size) {
+    final n = math.max(0, math.min(size, bytes.length - position));
+    buffer.setRange(0, n, bytes, position);
+    return n;
+  },
+  fileSize: bytes.length,
+  sourceName: sourceName,
+  maxSizeToCacheOnMemory: bytes.length,
+);
 
 Future<int> pageCountOf(String path) async {
   final doc = await openPdfInMemory(path);
@@ -80,7 +97,7 @@ Future<AssembleResult> assemble(List<PageRef> refs, {bool flatten = false}) asyn
     if (flatten && annotations.isNotEmpty) {
       // Edit a freshly opened copy: pdfrx re-imports foreign pages on every
       // encode, which would drop edits made to the assembled document.
-      final assembled = await PdfDocument.openData(bytes, sourceName: 'flat#${_uuid.v4()}');
+      final assembled = await openPdfBytes(bytes, 'flat#${_uuid.v4()}');
       try {
         await flattenAnnotations(assembled, annotations);
         bytes = await assembled.encodePdf();
