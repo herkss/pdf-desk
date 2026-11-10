@@ -16,8 +16,22 @@ jobs:
           cache: true
       - run: flutter pub get
       - run: flutter analyze
-      # The github reporter turns failures into annotations on the run page.
-      - run: flutter test -r github
+      # On failure, the failing tests' output is posted as an annotation so
+      # it can be read on the run page (and through the API) without a login.
+      - name: flutter test
+        shell: pwsh
+        run: |
+          flutter test -r expanded 2>&1 | Tee-Object -FilePath test.log
+          $code = $LASTEXITCODE
+          if ($code -ne 0) {
+            $lines = Get-Content test.log
+            $hits = $lines | Select-String -Pattern '\[E\]|Expected:|Actual:|Exception|Error|line \d+' -Context 2,4
+            $text = ($hits | ForEach-Object { $_.Context.PreContext; $_.Line; $_.Context.PostContext }) -join "`n"
+            if ($text.Length -gt 6000) { $text = $text.Substring(0, 6000) }
+            $text = $text -replace '%', '%25' -replace "`r", '' -replace "`n", '%0A'
+            Write-Output "::error title=flutter test failed::$text"
+          }
+          exit $code
       - run: flutter build windows --release
       - uses: actions/upload-artifact@v4
         with:
