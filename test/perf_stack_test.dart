@@ -34,6 +34,10 @@ void main() {
       // ignore: avoid_print
       print('PERF spread24=${tSpread}ms thumbs24=${tThumbs}ms capture=${tCapture}ms stack=${tStack}ms');
       expect(count, 24);
+      // Thumbnails were saved for next time.
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      final thumbs = Directory('${tmp.path}/.pdfdesk/thumbs');
+      expect(thumbs.existsSync() && thumbs.listSync().whereType<File>().any((f) => f.path.endsWith('.png')), isTrue);
       expect(undo.paths.length, 24);
     });
   });

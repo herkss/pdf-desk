@@ -8,6 +8,7 @@ import 'package:path/path.dart' as p;
 import 'package:pdf/widgets.dart' as pw;
 import 'package:pdf_desk/main.dart';
 import 'package:pdf_desk/services/settings.dart';
+import 'package:pdf_desk/services/thumbnails.dart';
 import 'package:pdf_desk/services/storage.dart';
 import 'package:pdf_desk/ui/common/toolbar.dart';
 import 'package:pdf_desk/ui/desk/desk_canvas.dart';
@@ -59,6 +60,7 @@ Future<void> dragOnto(WidgetTester tester, Finder from, Finder to) async {
 }
 
 void main() {
+  ThumbnailService.timeLimit = null;
   late Directory tmp;
   late Settings settings;
 

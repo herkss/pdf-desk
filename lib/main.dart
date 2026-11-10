@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:pdf/widgets.dart' as pw;
 import 'package:pdfrx/pdfrx.dart';
 
 import 'l10n/l10n.dart';
@@ -19,6 +20,24 @@ Future<void> main() async {
   await pdfrxFlutterInitialize();
   final settings = await Settings.load();
   runApp(PdfDeskApp(settings: settings));
+  unawaited(_warmUpPdfEngine());
+}
+
+/// The first page PDFium draws pays for starting up and finding the
+/// system's fonts (a second or two on Windows). Do that now, in the
+/// background, instead of on the first thumbnail.
+Future<void> _warmUpPdfEngine() async {
+  try {
+    final sw = Stopwatch()..start();
+    final bytes = await (pw.Document()..addPage(pw.Page(build: (_) => pw.Text('PDF Desk')))).save();
+    final doc = await PdfDocument.openData(bytes, sourceName: 'warm-up');
+    final image = await doc.pages.first.render(fullWidth: 32, fullHeight: 45);
+    image?.dispose();
+    await doc.dispose();
+    PerfLog.write('PDF engine ready in ${sw.elapsedMilliseconds} ms');
+  } catch (e) {
+    PerfLog.write('PDF engine warm-up failed: $e');
+  }
 }
 
 class PdfDeskApp extends StatelessWidget {

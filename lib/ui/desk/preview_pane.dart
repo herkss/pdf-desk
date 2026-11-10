@@ -106,11 +106,11 @@ class PreviewPaneState extends State<PreviewPane> {
     }
     setState(() => _loading = true);
     final docs = <_Doc>[];
-    _stamp = await _stampOf(entry.path);
     try {
+      _stamp = await _stampOf(entry.path);
       final paths = entry.isBinder ? await binderDocuments(entry.path) : [entry.path];
       for (final path in paths) {
-        docs.add(_Doc(path, await ops.openPdfInMemory(path), await loadAnnotations(path)));
+        docs.add(_Doc(path, await ThumbnailService.limited(ops.openPdfInMemory(path)), await loadAnnotations(path)));
       }
     } catch (e) {
       debugPrint('preview failed for ${entry.path}: $e');

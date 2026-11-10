@@ -16,6 +16,7 @@ import 'package:pdf_desk/l10n/l10n.dart';
 import 'package:pdf_desk/main.dart';
 import 'package:pdf_desk/models/annotation.dart';
 import 'package:pdf_desk/services/settings.dart';
+import 'package:pdf_desk/services/thumbnails.dart';
 import 'package:pdf_desk/services/storage.dart';
 import 'package:pdf_desk/ui/common/app_theme.dart';
 import 'package:pdf_desk/ui/common/help.dart';
@@ -75,6 +76,7 @@ Future<void> _shot(WidgetTester tester, String name) async {
 }
 
 void main() {
+  ThumbnailService.timeLimit = null;
   testWidgets('screenshots', (tester) async {
     late Settings settings;
     await tester.runAsync(() async {

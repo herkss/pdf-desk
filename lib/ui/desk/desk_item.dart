@@ -49,7 +49,13 @@ class _ThumbnailViewState extends State<ThumbnailView> {
 
   Future<void> _load() async {
     final path = widget.path;
-    final t = await ThumbnailService.instance.get(path);
+    Thumbnail? t;
+    try {
+      t = await ThumbnailService.instance.get(path);
+    } catch (_) {
+      // A missing or unreadable document: the broken-page icon, not a
+      // spinner that never stops.
+    }
     if (!mounted || path != widget.path) return;
     setState(() {
       _thumb = t;
