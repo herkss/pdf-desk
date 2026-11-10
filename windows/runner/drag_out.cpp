@@ -26,7 +26,7 @@ std::wstring Utf8ToWide(const std::string& s) {
 // and the desktop accept (CF_HDROP, shell ID lists, ...). Returns nullptr if
 // a path can't be resolved.
 IDataObject* DataObjectForFiles(const std::vector<std::wstring>& paths) {
-  std::vector<PIDLIST_ABSOLUTE> pidls;
+  std::vector<PCIDLIST_ABSOLUTE> pidls;
   for (const auto& path : paths) {
     PIDLIST_ABSOLUTE pidl = nullptr;
     if (FAILED(SHParseDisplayName(path.c_str(), nullptr, &pidl, 0, nullptr)) ||
@@ -39,14 +39,14 @@ IDataObject* DataObjectForFiles(const std::vector<std::wstring>& paths) {
   if (!pidls.empty()) {
     IShellItemArray* items = nullptr;
     if (SUCCEEDED(SHCreateShellItemArrayFromIDLists(
-            static_cast<UINT>(pidls.size()),
-            reinterpret_cast<PCIDLIST_ABSOLUTE_ARRAY>(pidls.data()),
-            &items))) {
+            static_cast<UINT>(pidls.size()), pidls.data(), &items))) {
       items->BindToHandler(nullptr, BHID_DataObject, IID_PPV_ARGS(&data));
       items->Release();
     }
   }
-  for (auto pidl : pidls) CoTaskMemFree(pidl);
+  for (auto pidl : pidls) {
+    CoTaskMemFree(const_cast<void*>(static_cast<const void*>(pidl)));
+  }
   return data;
 }
 
