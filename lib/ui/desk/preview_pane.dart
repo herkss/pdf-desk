@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:pdfrx/pdfrx.dart';
@@ -68,8 +70,28 @@ class PreviewPaneState extends State<PreviewPane> {
     super.dispose();
   }
 
-  /// The document changed on disk: reload but stay on the same page.
-  void _reload() => _load();
+  /// Something on the desk changed: reload, staying on the same page, but
+  /// only if this document's file (or its annotations) really changed.
+  Future<void> _reload() async {
+    final entry = widget.entry;
+    if (entry == null) return;
+    final stamp = await _stampOf(entry.path);
+    if (stamp == _stamp) return;
+    await _load();
+  }
+
+  String? _stamp;
+
+  static Future<String> _stampOf(String path) async {
+    final paths = isBinderPath(path) ? await binderDocuments(path) : [path];
+    final parts = <String>[];
+    for (final f in paths) {
+      final st = await FileStat.stat(f);
+      final side = await FileStat.stat(annotationPathFor(f));
+      parts.add('$f|${st.modified.millisecondsSinceEpoch}|${st.size}|${side.modified.millisecondsSinceEpoch}');
+    }
+    return parts.join(';');
+  }
 
   Future<void> _load() async {
     final gen = ++_generation;
@@ -84,6 +106,7 @@ class PreviewPaneState extends State<PreviewPane> {
     }
     setState(() => _loading = true);
     final docs = <_Doc>[];
+    _stamp = await _stampOf(entry.path);
     try {
       final paths = entry.isBinder ? await binderDocuments(entry.path) : [entry.path];
       for (final path in paths) {

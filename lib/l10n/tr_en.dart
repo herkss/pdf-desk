@@ -158,6 +158,7 @@ const trEn = <String, String>{
   '미리보기 창': 'Preview pane',
   '표시': 'View',
   '단축키': 'Keyboard shortcuts',
+  '진단 로그 열기': 'Open diagnostic log',
   'PDF Desk 정보': 'About PDF Desk',
   '도움말': 'Help',
   '가져오기': 'Import',

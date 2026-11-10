@@ -7,6 +7,8 @@ import 'dart:ui';
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 
+import 'perf_log.dart';
+
 import '../models/annotation.dart';
 
 /// Metadata lives next to the documents in a hidden `.pdfdesk` directory, so a
@@ -101,7 +103,9 @@ Future<T> retryFileOp<T>(Future<T> Function() op, {int attempts = 12}) async {
     } on FileSystemException catch (e) {
       if (i >= attempts) rethrow;
       debugPrint('file op failed (attempt $i), retrying: ${e.message} ${e.path}');
-      await Future<void>.delayed(Duration(milliseconds: 100 * i));
+      PerfLog.write('file busy (try $i): ${e.osError?.message ?? e.message} ${e.path ?? ''}');
+      // Short waits first: most holds are a scanner reading for a moment.
+      await Future<void>.delayed(Duration(milliseconds: i <= 3 ? 30 * i : 100 * i));
     }
   }
 }
@@ -188,8 +192,17 @@ Future<void> _move(String from, String to) async {
 Future<void> writeBytesAtomic(String path, List<int> bytes) => _writeAtomic(path, bytes);
 
 Future<void> _writeAtomic(String path, List<int> bytes) async {
+  // A new file is written in place: no rename, so nothing for a virus
+  // scanner looking at the fresh file to block.
+  if (!await File(path).exists()) {
+    await retryFileOp(() => File(path).writeAsBytes(bytes));
+    return;
+  }
+  // Replacing: write beside it, then swap, so a crash never leaves half a
+  // file. (No flush: forcing each file to disk made writing many files slow
+  // on Windows.)
   final tmp = File('$path.tmp');
-  await retryFileOp(() => tmp.writeAsBytes(bytes, flush: true));
+  await retryFileOp(() => tmp.writeAsBytes(bytes));
   await retryFileOp(() async {
     try {
       // Replaces an existing file in one step on every platform.

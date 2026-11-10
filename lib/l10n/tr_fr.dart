@@ -158,6 +158,7 @@ const trFr = <String, String>{
   '미리보기 창': 'Volet d\'aperçu',
   '표시': 'Affichage',
   '단축키': 'Raccourcis clavier',
+  '진단 로그 열기': 'Ouvrir le journal de diagnostic',
   'PDF Desk 정보': 'À propos de PDF Desk',
   '도움말': 'Aide',
   '가져오기': 'Importer',

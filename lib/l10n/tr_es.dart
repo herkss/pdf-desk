@@ -158,6 +158,7 @@ const trEs = <String, String>{
   '미리보기 창': 'Panel de vista previa',
   '표시': 'Ver',
   '단축키': 'Atajos de teclado',
+  '진단 로그 열기': 'Abrir registro de diagnóstico',
   'PDF Desk 정보': 'Acerca de PDF Desk',
   '도움말': 'Ayuda',
   '가져오기': 'Importar',

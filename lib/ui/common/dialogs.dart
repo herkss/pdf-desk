@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import '../../l10n/l10n.dart';
+import '../../services/perf_log.dart';
 
 Future<String?> promptText(
   BuildContext context, {
@@ -82,7 +83,7 @@ Future<T?> runBusy<T>(BuildContext context, String label, Future<T> Function() t
     ),
   ).whenComplete(() => shown = false);
   try {
-    return await task();
+    return await PerfLog.time(label, task);
   } catch (e) {
     if (context.mounted) showError(context, e);
     return null;

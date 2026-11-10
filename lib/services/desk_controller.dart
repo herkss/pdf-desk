@@ -86,8 +86,12 @@ class DeskController extends ChangeNotifier {
       _watch = Directory(folder).watch().listen((e) {
         if (e.path.contains(metaDirName) || e.path.endsWith('.tmp')) return;
         _refreshDebounce?.cancel();
-        _refreshDebounce = Timer(const Duration(milliseconds: 400), () {
-          ThumbnailService.instance.invalidate();
+        _refreshDebounce = Timer(const Duration(milliseconds: 600), () {
+          // Our own operations already refreshed everything; their file
+          // events only need the list re-read, not every thumbnail.
+          if (DateTime.now().difference(_lastOwnRefresh) > const Duration(seconds: 2)) {
+            ThumbnailService.instance.invalidate();
+          }
           refresh();
         });
       });
@@ -101,6 +105,15 @@ class DeskController extends ChangeNotifier {
     await _flushLayout();
     await _watch?.cancel();
     _watch = null;
+  }
+
+  DateTime _lastOwnRefresh = DateTime(0);
+
+  /// After an operation of ours: thumbnails and list, once.
+  Future<void> refreshAfterChange() async {
+    _lastOwnRefresh = DateTime.now();
+    ThumbnailService.instance.invalidate();
+    await refresh();
   }
 
   Future<void> refresh() async {

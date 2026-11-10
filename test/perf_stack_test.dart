@@ -1,7 +1,6 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:path/path.dart' as p;
 import 'package:pdf_desk/services/pdf_ops.dart' as ops;
 import 'package:pdf_desk/services/thumbnails.dart';
 
@@ -9,23 +8,33 @@ import 'pdf_ops_test.dart' show makePdf;
 import 'pdfium_test_setup.dart';
 
 void main() {
-  testWidgets('stacking 12 documents and drawing the result is quick', (tester) async {
+  testWidgets('spreading, stacking and drawing stay quick', (tester) async {
     await tester.runAsync(() async {
       final tmp = await Directory.systemTemp.createTemp('pdfdesk_perf');
       await initPdfiumForTests(tmp.path);
-      final docs = [for (var i = 0; i < 12; i++) await makePdf(tmp.path, 'D$i', ['page $i a', 'page $i b', 'page $i c'])];
+      final big = await makePdf(tmp.path, 'Big', [for (var i = 0; i < 24; i++) 'page $i']);
       final sw = Stopwatch()..start();
-      final undo = await ops.StackUndo.capture(tmp.path, docs);
-      final tCapture = sw.elapsedMilliseconds;
-      await ops.stackOnto(docs.first, docs.skip(1).toList());
-      final tStack = sw.elapsedMilliseconds - tCapture;
-      final thumb = await ThumbnailService.instance.get(docs.first).timeout(const Duration(seconds: 20));
-      final tThumb = sw.elapsedMilliseconds - tCapture - tStack;
+      int lap() {
+        final t = sw.elapsedMilliseconds;
+        sw.reset();
+        return t;
+      }
+
+      final sheets = await ops.spreadPages(big, tmp.path);
+      final tSpread = lap();
+      for (final s in sheets) {
+        await ThumbnailService.instance.get(s);
+      }
+      final tThumbs = lap();
+      final undo = await ops.StackUndo.capture(tmp.path, sheets);
+      final tCapture = lap();
+      await ops.stackOnto(sheets.first, sheets.skip(1).toList());
+      final tStack = lap();
+      final count = await ops.pageCountOf(sheets.first);
       // ignore: avoid_print
-      print('PERF capture=${tCapture}ms stack=${tStack}ms thumb=${tThumb}ms pages=${thumb?.pageCount} size=${File(docs.first).lengthSync()}');
-      expect(thumb?.pageCount, 36);
-      expect(undo.paths.length, 12);
-      expect(p.basename(docs.first), 'D0.pdf');
+      print('PERF spread24=${tSpread}ms thumbs24=${tThumbs}ms capture=${tCapture}ms stack=${tStack}ms');
+      expect(count, 24);
+      expect(undo.paths.length, 24);
     });
   });
 }

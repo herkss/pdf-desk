@@ -465,6 +465,7 @@ class _DeskScreenState extends State<DeskScreen> {
                       ),
                       item(tr('단축키'), () => showManual(context, chapter: 9)),
                       const Divider(height: 1),
+                      item(tr('진단 로그 열기'), _openLog),
                       item(tr('PDF Desk 정보'), () => showAbout(context)),
                     ],
                     child: Text(tr('도움말')),
@@ -623,6 +624,21 @@ class _DeskScreenState extends State<DeskScreen> {
         );
       },
     );
+  }
+
+  /// The diagnostic log, in Notepad (or the system's text viewer).
+  Future<void> _openLog() async {
+    final path = widget.settings.logPath;
+    if (!File(path).existsSync()) File(path).writeAsStringSync('');
+    try {
+      if (Platform.isWindows) {
+        await Process.start('notepad', [path]);
+      } else {
+        await Process.run(Platform.isMacOS ? 'open' : 'xdg-open', [path]);
+      }
+    } catch (e) {
+      if (mounted) showError(context, e);
+    }
   }
 
   /// Left side: the desk's folders on top, the computer's drives below.

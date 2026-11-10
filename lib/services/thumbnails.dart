@@ -8,6 +8,7 @@ import 'package:pdfrx/pdfrx.dart';
 
 import '../models/annotation.dart';
 import 'pdf_ops.dart';
+import 'perf_log.dart';
 import 'storage.dart';
 
 class Thumbnail {
@@ -29,7 +30,7 @@ class ThumbnailService {
   static final instance = ThumbnailService._();
 
   static const _maxEntries = 300;
-  static const _maxConcurrent = 2;
+  static const _maxConcurrent = 3;
   static const renderWidth = 400;
 
   final _cache = <String, Thumbnail>{};
@@ -73,9 +74,10 @@ class ThumbnailService {
     }
     // The callback must not return the pending future, or whenComplete would
     // wait for itself.
-    return _pending[key] ??= _render(path, key).whenComplete(() {
-      _pending.remove(key);
-    });
+    return _pending[key] ??= PerfLog.time('thumbnail ${path.split(RegExp(r'[\\/]')).last}', () => _render(path, key))
+        .whenComplete(() {
+          _pending.remove(key);
+        });
   }
 
   void invalidate() => revision.value++;

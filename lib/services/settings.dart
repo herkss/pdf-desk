@@ -79,6 +79,9 @@ class Settings extends ChangeNotifier {
   /// Where the "PDF Desk" printer writes its output.
   String get inboxPath => p.join(_file.parent.path, 'inbox');
 
+  /// Diagnostic log of slow steps (see PerfLog).
+  String get logPath => p.join(_file.parent.path, 'diagnostics.log');
+
   /// Settings stored in [file], for tests.
   @visibleForTesting
   factory Settings.at(File file, String rootPath) => Settings._(file)..rootPath = rootPath;

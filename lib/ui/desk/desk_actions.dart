@@ -26,10 +26,7 @@ class DeskActions {
 
   List<DeskEntry> get _sel => desk.selectedEntries;
 
-  Future<void> _done() async {
-    ThumbnailService.instance.invalidate();
-    await desk.refresh();
-  }
+  Future<void> _done() => desk.refreshAfterChange();
 
   Future<void> open([DeskEntry? entry]) async {
     final e = entry ?? (_sel.isEmpty ? null : _sel.first);
