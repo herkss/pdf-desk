@@ -358,16 +358,17 @@ ThemeData buildAppTheme(AppTheme theme, {String? fontFamily, List<String>? fontF
       ),
     ),
     iconButtonTheme: IconButtonThemeData(style: IconButton.styleFrom(foregroundColor: pal.ink)),
+    // Plain styles: a state-dependent style loses the font when the chip
+    // merges it, and CJK labels turn into boxes.
     chipTheme: ChipThemeData(
-      backgroundColor: fill.withValues(alpha: dark ? 0.4 : 0.06),
+      backgroundColor: pal.field,
       selectedColor: primary,
       secondarySelectedColor: primary,
       checkmarkColor: Colors.white,
-      side: BorderSide.none,
+      side: BorderSide(color: pal.separator, width: 0.5),
       shape: r <= 4 ? RoundedRectangleBorder(borderRadius: BorderRadius.circular(r)) : const StadiumBorder(),
-      labelStyle: WidgetStateTextStyle.resolveWith(
-        (s) => text(size: 13, color: s.contains(WidgetState.selected) ? Colors.white : pal.ink),
-      ),
+      labelStyle: text(size: 13, color: pal.ink),
+      secondaryLabelStyle: text(size: 13, color: Colors.white),
     ),
     segmentedButtonTheme: SegmentedButtonThemeData(
       style: ButtonStyle(

@@ -217,6 +217,26 @@ void main() {
     await _settle(tester, 5);
     await _shot(tester, 'color_picker');
 
+    // Right-click settings of viewer tools.
+    final nav = tester.state<NavigatorState>(find.byType(Navigator).first);
+    nav.pop();
+    await _settle(tester, 3);
+    nav.pop();
+    await _settle(tester, 3);
+    for (final (label, name) in [('도장', 'stamp_settings'), ('사각형', 'rect_settings')]) {
+      final g2 = await tester.startGesture(
+        tester.getCenter(find.text(label).first),
+        kind: PointerDeviceKind.mouse,
+        buttons: kSecondaryMouseButton,
+      );
+      await g2.up();
+      await _settle(tester, 6);
+      await _shot(tester, name);
+      expect(tester.takeException(), isNull);
+      nav.pop();
+      await _settle(tester, 3);
+    }
+
     // Back to the desk, then the language menu and other languages.
     tester.state<NavigatorState>(find.byType(Navigator).first).popUntil((r) => r.isFirst);
     await _settle(tester, 10);
