@@ -49,4 +49,25 @@ void main() {
     }
     expect(find.text('PDF나 이미지 파일이 없습니다'), findsOneWidget);
   });
+
+  testWidgets("the computer's own places appear instead of loading forever", (tester) async {
+    late DeskController desk;
+    await tester.runAsync(() async {
+      final tmp = await Directory.systemTemp.createTemp('pdfdesk_disk2');
+      desk = DeskController(Settings.at(File(p.join(tmp.path, 's.json')), tmp.path));
+    });
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildAppTheme(AppTheme.iosLight),
+        home: Scaffold(body: DiskTree(desk: desk, actions: (c) => DeskActions(c, desk))),
+      ),
+    );
+    expect(find.text('불러오는 중…'), findsOneWidget);
+    for (var i = 0; i < 100 && find.text('불러오는 중…').evaluate().isNotEmpty; i++) {
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 100)));
+      await tester.pump();
+    }
+    expect(find.text('불러오는 중…'), findsNothing);
+    expect(find.text('/'), findsOneWidget);
+  }, skip: Platform.isWindows);
 }

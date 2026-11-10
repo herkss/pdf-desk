@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -38,53 +40,64 @@ class DiskTree extends StatefulWidget {
 
 /// Top-level places: the user's common folders, then every drive.
 ///
-/// On Windows the real Desktop/Documents/Downloads come from the shell
-/// folder registry: with OneDrive backup they live under OneDrive, often
-/// with localized names (e.g. "OneDrive\바탕 화면").
+/// Every check has a time limit: an offline network drive or an empty card
+/// reader can take a long time to answer, and none of them may keep the
+/// list from appearing.
 Future<List<(String label, String path, IconData icon)>> diskRoots() async {
   final home = Platform.environment['USERPROFILE'] ?? Platform.environment['HOME'] ?? '';
-  var desktop = p.join(home, 'Desktop'), documents = p.join(home, 'Documents'), downloads = p.join(home, 'Downloads');
-  if (Platform.isWindows) {
-    try {
-      final r = await Process.run('reg', [
-        'query',
-        r'HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Shell Folders',
-      ]);
-      for (final line in '${r.stdout}'.split('\n')) {
-        final m = RegExp(r'^\s+(\S+)\s+REG_\w+\s+(.+?)\s*$').firstMatch(line);
-        if (m == null) continue;
-        switch (m[1]) {
-          case 'Desktop':
-            desktop = m[2]!;
-          case 'Personal':
-            documents = m[2]!;
-          case '{374DE290-123F-4565-9164-39C4925E467B}':
-            downloads = m[2]!;
-        }
-      }
-    } catch (_) {
-      // Fall back to the usual names under the profile.
-    }
-  }
-  final places = <(String, String, IconData)>[
+  final known = Platform.isWindows ? await _shellFolders() : const <String>[];
+  String pick(int i, String fallback) => i < known.length && known[i].isNotEmpty ? known[i] : p.join(home, fallback);
+  final candidates = <(String, String, IconData)>[
     if (home.isNotEmpty) ...[
-      (tr('바탕 화면'), desktop, Icons.desktop_mac_outlined),
-      (tr('문서'), documents, Icons.description_outlined),
-      (tr('다운로드'), downloads, Icons.download_outlined),
+      (tr('바탕 화면'), pick(0, 'Desktop'), Icons.desktop_mac_outlined),
+      (tr('문서'), pick(1, 'Documents'), Icons.description_outlined),
+      (tr('다운로드'), pick(2, 'Downloads'), Icons.download_outlined),
     ],
-  ].where((e) => Directory(e.$2).existsSync()).toList();
+  ];
   if (Platform.isWindows) {
     for (var c = 'C'.codeUnitAt(0); c <= 'Z'.codeUnitAt(0); c++) {
       final drive = '${String.fromCharCode(c)}:\\';
-      if (Directory(drive).existsSync()) {
-        places.add((tr('로컬 디스크 ({d})', {'d': drive.substring(0, 2)}), drive, Icons.storage));
-      }
+      candidates.add((tr('로컬 디스크 ({d})', {'d': drive.substring(0, 2)}), drive, Icons.storage));
     }
   } else {
-    if (home.isNotEmpty) places.add((tr('홈'), home, Icons.home_outlined));
-    places.add(('/', '/', Icons.storage));
+    if (home.isNotEmpty) candidates.add((tr('홈'), home, Icons.home_outlined));
+    candidates.add(('/', '/', Icons.storage));
   }
-  return places;
+  // Checked together, so one slow drive doesn't hold up the others.
+  final present = await Future.wait([for (final c in candidates) _exists(c.$2)]);
+  return [
+    for (final (i, c) in candidates.indexed)
+      if (present[i]) c,
+  ];
+}
+
+Future<bool> _exists(String path) async {
+  try {
+    return await Directory(path).exists().timeout(const Duration(seconds: 3), onTimeout: () => false);
+  } catch (_) {
+    return false;
+  }
+}
+
+/// The real Desktop, Documents and Downloads folders. With OneDrive backup
+/// they live under OneDrive, often with localized names
+/// ("OneDrive\바탕 화면"), so they're asked from Windows, in UTF-8 so
+/// Korean or Japanese names come through intact. Empty if it fails.
+Future<List<String>> _shellFolders() async {
+  try {
+    final r = await Process.run('powershell', [
+      '-NoProfile',
+      '-NonInteractive',
+      '-Command',
+      '[Console]::OutputEncoding = [Text.Encoding]::UTF8; '
+          "[Environment]::GetFolderPath('Desktop'); "
+          "[Environment]::GetFolderPath('MyDocuments'); "
+          "(New-Object -ComObject Shell.Application).NameSpace('shell:Downloads').Self.Path",
+    ], stdoutEncoding: utf8).timeout(const Duration(seconds: 8));
+    return '${r.stdout}'.split(RegExp(r'\r?\n')).map((l) => l.trim()).toList();
+  } catch (_) {
+    return const [];
+  }
 }
 
 /// What a folder holds, or why it couldn't be read.
@@ -111,10 +124,17 @@ class _DiskTreeState extends State<DiskTree> {
   void initState() {
     super.initState();
     _roots = widget.roots;
-    if (_roots != null) return;
-    diskRoots().then((r) {
-      if (mounted) setState(() => _roots = r);
-    });
+    if (_roots == null) _findRoots();
+  }
+
+  void _findRoots() {
+    if (_roots != null) setState(() => _roots = null);
+    diskRoots()
+        .timeout(const Duration(seconds: 20), onTimeout: () => const [])
+        .catchError((Object _) => <(String, String, IconData)>[])
+        .then((r) {
+          if (mounted) setState(() => _roots = r);
+        });
   }
 
   String? _selectedFile;
@@ -129,7 +149,10 @@ class _DiskTreeState extends State<DiskTree> {
     final dirs = <String>[], files = <String>[];
     String? error;
     try {
-      await for (final e in Directory(folder).list(followLinks: false).handleError((Object _) {})) {
+      final entries = Directory(
+        folder,
+      ).list(followLinks: false).handleError((Object _) {}).timeout(const Duration(seconds: 10));
+      await for (final e in entries) {
         final name = p.basename(e.path);
         if (_skip(name)) continue;
         if (e is Directory && !isBinderPath(name)) {
@@ -140,6 +163,8 @@ class _DiskTreeState extends State<DiskTree> {
       }
     } on FileSystemException catch (e) {
       error = e.osError?.message ?? e.message;
+    } on TimeoutException {
+      error = tr('응답이 없습니다');
     }
     int byName(String a, String b) => p.basename(a).toLowerCase().compareTo(p.basename(b).toLowerCase());
     _loading.remove(folder);
@@ -303,6 +328,18 @@ class _DiskTreeState extends State<DiskTree> {
             Padding(
               padding: const EdgeInsets.all(12),
               child: Text(tr('불러오는 중…'), style: TextStyle(fontSize: 12, color: context.ink3)),
+            )
+          else if (_roots!.isEmpty)
+            Padding(
+              padding: const EdgeInsets.all(12),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(tr('드라이브를 찾지 못했습니다'), style: TextStyle(fontSize: 12, color: context.ink3)),
+                  ),
+                  TextButton(onPressed: _findRoots, child: Text(tr('다시 시도'))),
+                ],
+              ),
             )
           else
             for (final (label, path, icon) in _roots!) ..._folder(path, label, icon, 0),
