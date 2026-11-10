@@ -24,9 +24,15 @@ jobs:
           flutter test -r expanded 2>&1 | Tee-Object -FilePath test.log
           $code = $LASTEXITCODE
           if ($code -ne 0) {
-            $lines = Get-Content test.log
-            $hits = $lines | Select-String -Pattern '\[E\]|Expected:|Actual:|Exception|Error|line \d+' -Context 2,4
-            $text = ($hits | ForEach-Object { $_.Context.PreContext; $_.Line; $_.Context.PostContext }) -join "`n"
+            # Only the framework's failure reports, without per-file noise.
+            $lines = Get-Content test.log | Where-Object { $_ -notmatch 'preview failed|thumbnail failed|file op failed' }
+            $keep = $false
+            $out = foreach ($l in $lines) {
+              if ($l -match 'EXCEPTION CAUGHT|\[E\]') { $keep = $true }
+              if ($keep) { $l }
+              if ($l -match '^═+$') { $keep = $false }
+            }
+            $text = $out -join "`n"
             if ($text.Length -gt 6000) { $text = $text.Substring(0, 6000) }
             $text = $text -replace '%', '%25' -replace "`r", '' -replace "`n", '%0A'
             Write-Output "::error title=flutter test failed::$text"
