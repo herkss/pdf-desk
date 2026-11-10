@@ -3,6 +3,7 @@
 import 'dart:io';
 import 'dart:ui' as ui;
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
@@ -10,10 +11,13 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:pdf/pdf.dart' as pdf;
 import 'package:pdf/widgets.dart' as pw;
+import 'package:pdf_desk/l10n/l10n.dart';
 import 'package:pdf_desk/main.dart';
 import 'package:pdf_desk/models/annotation.dart';
 import 'package:pdf_desk/services/settings.dart';
 import 'package:pdf_desk/services/storage.dart';
+import 'package:pdf_desk/ui/common/language_menu.dart';
+import 'package:pdf_desk/ui/viewer/page_view.dart';
 
 import 'pdfium_test_setup.dart';
 
@@ -135,6 +139,34 @@ void main() {
           text: '금액 오타?',
           fontSize: 14,
         ),
+        Annotation(
+          type: AnnotationType.rect,
+          page: 0,
+          points: [const Offset(40, 430), const Offset(300, 520)],
+          color: const Color(0xFF1E88E5),
+          fill: const Color(0x80BBDEFB),
+          lineStyle: LineStyle.dashed,
+        ),
+        Annotation(
+          type: AnnotationType.line,
+          page: 0,
+          points: [const Offset(330, 470), const Offset(540, 470)],
+          color: const Color(0xFF43A047),
+          strokeWidth: 3,
+          lineStyle: LineStyle.dotted,
+          heads: 3,
+        ),
+        Annotation(
+          type: AnnotationType.text,
+          page: 0,
+          points: [const Offset(60, 460), const Offset(280, 490)],
+          text: 'Times Bold Italic',
+          fontSize: 18,
+          fontFamily: 'Times New Roman',
+          bold: true,
+          italic: true,
+          fill: const Color(0xFFFFF59D),
+        ),
       ]);
       settings = Settings.at(File(p.join(tmp.path, 'settings.json')), root.path)..stampName = '홍길동';
     });
@@ -155,9 +187,44 @@ void main() {
     await _settle(tester, 30);
     await _shot(tester, 'desk');
 
-    await tester.tap(find.text('열기'));
+    await tester.tap(find.text('열기').first);
     await _settle(tester, 25);
     expect(find.text('1 / 3'), findsOneWidget);
     await _shot(tester, 'viewer');
+
+    // Right-click the dashed rectangle and open its properties.
+    await tester.tap(find.text('전체 페이지'));
+    await _settle(tester, 8);
+    await _shot(tester, 'viewer_styles');
+    final pageBox = tester.getRect(find.byType(AnnotatedPage).first);
+    final scale = pageBox.width / 595.28;
+    final g = await tester.startGesture(
+      pageBox.topLeft + const Offset(42, 500) * scale,
+      kind: PointerDeviceKind.mouse,
+      buttons: kSecondaryMouseButton,
+    );
+    await g.up();
+    await _settle(tester, 5);
+    await tester.tap(find.text('속성 (색·선·배경·글꼴)…'));
+    await _settle(tester, 5);
+    expect(find.text('주석 속성'), findsOneWidget);
+    await _shot(tester, 'style_dialog');
+    await tester.tap(find.byIcon(Icons.palette_outlined).last);
+    await _settle(tester, 5);
+    await _shot(tester, 'color_picker');
+
+    // Back to the desk, then the language menu and other languages.
+    tester.state<NavigatorState>(find.byType(Navigator).first).popUntil((r) => r.isFirst);
+    await _settle(tester, 10);
+    await tester.tap(find.byType(LanguageMenu));
+    await _settle(tester, 8);
+    await _shot(tester, 'language_menu');
+    await tester.tap(find.text('English').last);
+    await _settle(tester, 25);
+    await _shot(tester, 'desk_en');
+    appLanguage.value = AppLanguage.ja;
+    await _settle(tester, 25);
+    await _shot(tester, 'desk_ja');
+    appLanguage.value = AppLanguage.ko;
   }, skip: _outDir == null);
 }

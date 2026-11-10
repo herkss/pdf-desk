@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../services/desk_controller.dart';
 import '../../services/thumbnails.dart';
 import '../common/annotation_painter.dart';
+import '../common/ios_theme.dart';
 
 const _pageShadow = [BoxShadow(color: Color(0x55000000), blurRadius: 3, offset: Offset(1.5, 1.5))];
 
@@ -17,7 +18,7 @@ class ThumbnailView extends StatefulWidget {
   final bool stacked;
 
   /// Gap between the edges of stacked sheets.
-  static const sheetGap = 3.0;
+  static const sheetGap = DeskController.sheetGap;
 
   @override
   State<ThumbnailView> createState() => _ThumbnailViewState();
@@ -146,6 +147,7 @@ class DeskItemCard extends StatelessWidget {
     required this.size,
     required this.selected,
     this.highlighted = false,
+    this.dropLabel,
   });
 
   final DeskEntry entry;
@@ -155,34 +157,66 @@ class DeskItemCard extends StatelessWidget {
   /// Shown while something is dragged over this item.
   final bool highlighted;
 
+  /// What dropping here will do, shown while [highlighted].
+  final String? dropLabel;
+
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final thumbH = size.height - 40;
-    final pageBox = Container(
-      width: size.width,
-      height: thumbH,
-      alignment: Alignment.bottomCenter,
-      child: _Page(entry: entry, width: size.width - (entry.isBinder ? 10 : 0), maxHeight: thumbH),
+    final thumbH = size.height - DeskController.labelHeight;
+    const border = DeskController.cardBorder;
+    // Only the sheet itself (and its name) takes clicks and drops: the empty
+    // space around a small or landscape page is left to the desk.
+    final page = Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(3),
+        border: Border.all(
+          color: highlighted
+              ? Colors.orange
+              : selected
+              ? scheme.primary
+              : Colors.transparent,
+          width: border,
+        ),
+      ),
+      child: _Page(
+        entry: entry,
+        width: size.width - border * 2 - (entry.isBinder ? 10 : 0),
+        maxHeight: thumbH - border * 2,
+      ),
     );
     return SizedBox(
       width: size.width,
       height: size.height,
       child: Column(
         children: [
-          Container(
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(3),
-              border: Border.all(
-                color: highlighted
-                    ? Colors.orange
-                    : selected
-                    ? scheme.primary
-                    : Colors.transparent,
-                width: 2.5,
-              ),
+          SizedBox(
+            width: size.width,
+            height: thumbH,
+            child: Stack(
+              alignment: Alignment.bottomCenter,
+              children: [
+                page,
+                if (highlighted && dropLabel != null)
+                  Positioned.fill(
+                    child: IgnorePointer(
+                      child: Center(
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(color: Colors.orange, borderRadius: BorderRadius.circular(12)),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.add, size: 14, color: Colors.white),
+                              Text(dropLabel!, style: const TextStyle(color: Colors.white, fontSize: 12)),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
             ),
-            child: pageBox,
           ),
           const SizedBox(height: 3),
           Container(
@@ -214,7 +248,10 @@ class _Page extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final page = ConstrainedBox(
-      constraints: BoxConstraints(maxWidth: width, maxHeight: maxHeight - (entry.isBinder ? 6 : 2)),
+      constraints: BoxConstraints(
+        maxWidth: width,
+        maxHeight: maxHeight - (entry.isBinder ? DeskController.binderTop : 0),
+      ),
       child: ThumbnailView(path: entry.path, stacked: !entry.isBinder),
     );
     if (!entry.isBinder) return page;
@@ -236,17 +273,13 @@ class _Page extends StatelessWidget {
           child: Container(
             width: 9,
             decoration: BoxDecoration(
-              color: const Color(0xFF3F51B5),
+              color: IosColors.blue,
               borderRadius: const BorderRadius.horizontal(left: Radius.circular(3)),
               boxShadow: const [BoxShadow(color: Color(0x44000000), blurRadius: 2)],
             ),
           ),
         ),
-        const Positioned(
-          right: 2,
-          bottom: 2,
-          child: Icon(Icons.collections_bookmark, size: 16, color: Color(0xFF3F51B5)),
-        ),
+        const Positioned(right: 2, bottom: 2, child: Icon(Icons.collections_bookmark, size: 16, color: IosColors.blue)),
       ],
     );
   }

@@ -8,14 +8,52 @@ import '../../models/annotation.dart';
 const annotationFontFamily = 'Malgun Gothic';
 const annotationFontFallback = ['Noto Sans KR', 'Noto Sans CJK KR', 'Apple SD Gothic Neo', 'sans-serif'];
 
-TextStyle annotationTextStyle(double size, {Color? color, FontWeight? weight}) => TextStyle(
-  fontSize: size,
+TextStyle annotationTextStyle(double size, {Color? color, FontWeight? weight, String? family, bool italic = false}) =>
+    TextStyle(
+      fontSize: size,
+      color: color,
+      height: 1.25,
+      fontWeight: weight,
+      fontStyle: italic ? FontStyle.italic : null,
+      fontFamily: family ?? annotationFontFamily,
+      fontFamilyFallback: [if (family != null) annotationFontFamily, ...annotationFontFallback],
+    );
+
+/// The text style of a text box or sticky note.
+TextStyle textStyleOf(Annotation a, {Color? color}) => annotationTextStyle(
+  a.fontSize,
   color: color,
-  height: 1.25,
-  fontWeight: weight,
-  fontFamily: annotationFontFamily,
-  fontFamilyFallback: annotationFontFallback,
+  family: a.fontFamily,
+  weight: a.bold ? FontWeight.bold : null,
+  italic: a.italic,
 );
+
+/// Dash pattern as multiples of the stroke width ([LineStyle.solid]: none).
+/// A zero-length dash with a round cap draws a dot.
+List<double> dashPattern(LineStyle style) => switch (style) {
+  LineStyle.solid => const [],
+  LineStyle.dashed => const [4, 3],
+  LineStyle.dotted => const [0, 2.2],
+  LineStyle.dashDot => const [6, 2.5, 0, 2.5],
+};
+
+/// [path] cut into dashes for [style] at stroke width [width].
+Path dashedPath(Path path, LineStyle style, double width) {
+  final pattern = dashPattern(style);
+  if (pattern.isEmpty) return path;
+  final w = math.max(width, 1.0);
+  final out = Path();
+  for (final m in path.computeMetrics()) {
+    var d = 0.0, i = 0;
+    while (d < m.length) {
+      final len = pattern[i % pattern.length] * w;
+      if (i.isEven) out.addPath(m.extractPath(d, d + math.max(len, 0.01)), Offset.zero);
+      d += len;
+      i++;
+    }
+  }
+  return out;
+}
 
 /// Paints annotations of one page. Annotation coordinates are page points;
 /// [scale] converts them to logical pixels.
@@ -72,6 +110,10 @@ void paintAnnotation(Canvas canvas, Annotation a) {
     ..strokeCap = StrokeCap.round
     ..strokeJoin = StrokeJoin.round
     ..color = a.color;
+  void drawStroke(Path path) {
+    if (a.strokeWidth <= 0) return;
+    canvas.drawPath(dashedPath(path, a.lineStyle, a.strokeWidth), stroke);
+  }
 
   switch (a.type) {
     case AnnotationType.pen:
@@ -88,34 +130,38 @@ void paintAnnotation(Canvas canvas, Annotation a) {
         path.lineTo(p.dx, p.dy);
       }
       if (a.points.length == 1) path.lineTo(a.points.first.dx + 0.1, a.points.first.dy);
-      canvas.drawPath(path, stroke);
+      a.type == AnnotationType.marker ? canvas.drawPath(path, stroke) : drawStroke(path);
     case AnnotationType.line:
     case AnnotationType.arrow:
       if (a.points.length < 2) return;
       final p1 = a.points[0], p2 = a.points[1];
-      canvas.drawLine(p1, p2, stroke);
-      if (a.type == AnnotationType.arrow) {
-        for (final head in arrowHead(p1, p2, a.strokeWidth)) {
-          canvas.drawLine(p2, head, stroke);
+      drawStroke(
+        Path()
+          ..moveTo(p1.dx, p1.dy)
+          ..lineTo(p2.dx, p2.dy),
+      );
+      // Heads are always solid.
+      for (final (on, from, to) in [(a.startHead, p2, p1), (a.endHead, p1, p2)]) {
+        if (!on) continue;
+        for (final head in arrowHead(from, to, a.strokeWidth)) {
+          canvas.drawLine(to, head, stroke);
         }
       }
     case AnnotationType.rect:
     case AnnotationType.ellipse:
       final r = a.bounds;
-      if (a.fill != null) {
-        final f = Paint()..color = a.fill!;
-        a.type == AnnotationType.rect ? canvas.drawRect(r, f) : canvas.drawOval(r, f);
-      }
-      a.type == AnnotationType.rect ? canvas.drawRect(r, stroke) : canvas.drawOval(r, stroke);
+      final shape = a.type == AnnotationType.rect ? (Path()..addRect(r)) : (Path()..addOval(r));
+      if (a.fill != null) canvas.drawPath(shape, Paint()..color = a.fill!);
+      drawStroke(shape);
     case AnnotationType.text:
       final r = a.bounds;
       if (a.fill != null) canvas.drawRect(r, Paint()..color = a.fill!);
-      _paintText(canvas, a.text, r.topLeft + const Offset(2, 2), r.width - 4, a.fontSize, a.color);
+      _paintText(canvas, a, r.topLeft + const Offset(2, 2), r.width - 4);
     case AnnotationType.sticky:
       final r = a.bounds;
       canvas.drawRect(r.shift(const Offset(1.5, 1.5)), Paint()..color = Colors.black.withValues(alpha: 0.15));
       canvas.drawRect(r, Paint()..color = a.fill ?? const Color(0xFFFFF176));
-      _paintText(canvas, a.text, r.topLeft + const Offset(4, 4), r.width - 8, a.fontSize, a.color);
+      _paintText(canvas, a, r.topLeft + const Offset(4, 4), r.width - 8);
     case AnnotationType.stamp:
       paintStamp(canvas, a.bounds, a.text, a.color);
   }
@@ -131,11 +177,11 @@ List<Offset> arrowHead(Offset from, Offset to, double strokeWidth) {
   ];
 }
 
-void _paintText(Canvas canvas, String text, Offset at, double maxWidth, double size, Color color) {
+void _paintText(Canvas canvas, Annotation a, Offset at, double maxWidth) {
   final tp = TextPainter(
     text: TextSpan(
-      text: text,
-      style: annotationTextStyle(size, color: color),
+      text: a.text,
+      style: textStyleOf(a, color: a.color),
     ),
     textDirection: TextDirection.ltr,
   )..layout(maxWidth: math.max(1, maxWidth));

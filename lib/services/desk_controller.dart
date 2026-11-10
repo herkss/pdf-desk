@@ -40,8 +40,19 @@ class DeskController extends ChangeNotifier {
   /// Folder tree changes (new/renamed/deleted subfolders).
   final treeRevision = ValueNotifier(0);
 
+  static const minThumbWidth = 60.0;
+  static const maxThumbWidth = 480.0;
+
+  /// Card geometry shared with the desk widgets: the name below the sheet,
+  /// the selection border, the gap between stacked sheet edges and the room
+  /// left above a binder for the sheets behind it.
+  static const labelHeight = 40.0;
+  static const cardBorder = 2.5;
+  static const sheetGap = 3.0;
+  static const binderTop = 6.0;
+
   double get thumbWidth => layout.thumbWidth;
-  Size get itemSize => Size(thumbWidth, thumbWidth * 1.414 + 40);
+  Size get itemSize => Size(thumbWidth, thumbWidth * 1.414 + labelHeight);
   Size get gridStep => Size(itemSize.width + 28, itemSize.height + 20);
 
   List<DeskEntry> get visibleEntries {
@@ -120,7 +131,31 @@ class DeskController extends ChangeNotifier {
 
   Offset positionOf(DeskEntry e) => layout.positions[e.fileName] ?? Offset.zero;
 
+  /// The slot of a document: room for an A4 portrait sheet plus its name.
   Rect rectOf(DeskEntry e) => positionOf(e) & itemSize;
+
+  /// The sheet as drawn inside [rectOf] (bottom-centred, keeping the page's
+  /// aspect), which is what clicks and band selection hit. Falls back to the
+  /// whole slot until the thumbnail has been loaded once.
+  Rect sheetRectOf(DeskEntry e) {
+    final known = ThumbnailService.instance.knownPageOf(e.path);
+    if (known == null) return rectOf(e);
+    final (page, pages) = known;
+    final s = itemSize, thumbH = s.height - labelHeight;
+    final inset = e.isBinder ? 0.0 : math.min(3, pages - 1) * sheetGap;
+    final maxW = s.width - cardBorder * 2 - (e.isBinder ? 10 : 0) - inset;
+    final maxH = thumbH - cardBorder * 2 - (e.isBinder ? binderTop : 0) - inset;
+    final aspect = page.width / page.height;
+    var w = maxW, h = w / aspect;
+    if (h > maxH) {
+      h = maxH;
+      w = h * aspect;
+    }
+    w += inset + cardBorder * 2;
+    h += inset + cardBorder * 2;
+    final pos = positionOf(e);
+    return Rect.fromLTWH(pos.dx + (s.width - w) / 2, pos.dy + thumbH - h, w, h);
+  }
 
   Offset _nextFreeSlot({Offset? near}) {
     final step = gridStep;
@@ -229,9 +264,9 @@ class DeskController extends ChangeNotifier {
     // In reading order on the desk (rows top to bottom, then left to right),
     // so 겹치기 on a band selection follows the layout.
     final rowH = itemSize.height / 2;
-    final hits = visibleEntries.where((e) => rectOf(e).overlaps(r) && !selection.contains(e.path)).toList()
+    final hits = visibleEntries.where((e) => sheetRectOf(e).overlaps(r) && !selection.contains(e.path)).toList()
       ..sort((a, b) {
-        final pa = positionOf(a), pb = positionOf(b);
+        final pa = sheetRectOf(a).topLeft, pb = sheetRectOf(b).topLeft;
         final row = (pa.dy / rowH).floor().compareTo((pb.dy / rowH).floor());
         return row != 0 ? row : pa.dx.compareTo(pb.dx);
       });

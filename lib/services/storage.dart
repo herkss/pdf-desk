@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:ui';
 
+import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 
 import '../models/annotation.dart';
@@ -29,10 +30,10 @@ bool isImportable(String path) {
   return ext == '.pdf' || importableImageExts.contains(ext);
 }
 
-String _metaDir(String folder) => p.join(folder, metaDirName);
+String metaDirOf(String folder) => p.join(folder, metaDirName);
 
 String annotationPathFor(String pdfPath) =>
-    p.join(_metaDir(p.dirname(pdfPath)), 'annotations', '${p.basename(pdfPath)}.json');
+    p.join(metaDirOf(p.dirname(pdfPath)), 'annotations', '${p.basename(pdfPath)}.json');
 
 Future<List<Annotation>> loadAnnotations(String pdfPath) async {
   final f = File(annotationPathFor(pdfPath));
@@ -85,27 +86,61 @@ Future<void> copyDocument(String from, String to) async {
   }
 }
 
+/// Runs a file operation, retrying for a few seconds while it fails.
+///
+/// On Windows, antivirus scanners, the search indexer, OneDrive and our own
+/// thumbnail reader briefly hold files open right after they're written or
+/// read; deleting or renaming during that window fails with a sharing
+/// violation even though nothing is wrong.
+@visibleForTesting
+Future<T> retryFileOp<T>(Future<T> Function() op, {int attempts = 12}) async {
+  for (var i = 1; ; i++) {
+    try {
+      return await op();
+    } on FileSystemException catch (e) {
+      if (i >= attempts) rethrow;
+      debugPrint('file op failed (attempt $i), retrying: ${e.message} ${e.path}');
+      await Future<void>.delayed(Duration(milliseconds: 100 * i));
+    }
+  }
+}
+
+/// Copies a document (with its annotations) or a whole binder folder.
+Future<void> copyEntry(String from, String to) async {
+  if (!await Directory(from).exists()) return copyDocument(from, to);
+  await Directory(to).create(recursive: true);
+  await for (final e in Directory(from).list(recursive: true)) {
+    final dest = p.join(to, p.relative(e.path, from: from));
+    if (e is Directory) {
+      await Directory(dest).create(recursive: true);
+    } else if (e is File) {
+      await File(dest).parent.create(recursive: true);
+      await e.copy(dest);
+    }
+  }
+}
+
 Future<void> deleteDocument(String path) async {
   if (await Directory(path).exists()) {
-    await Directory(path).delete(recursive: true);
+    await retryFileOp(() => Directory(path).delete(recursive: true));
   } else {
-    await File(path).delete();
+    await retryFileOp(() => File(path).delete());
   }
   final sidecar = File(annotationPathFor(path));
-  if (await sidecar.exists()) await sidecar.delete();
+  if (await sidecar.exists()) await retryFileOp(sidecar.delete);
 }
 
 Future<void> _move(String from, String to) async {
-  try {
-    if (await Directory(from).exists()) {
-      await Directory(from).rename(to);
-    } else {
-      await File(from).rename(to);
-    }
-  } on FileSystemException {
-    // Cross-volume move: copy then delete.
-    await File(from).copy(to);
-    await File(from).delete();
+  if (await Directory(from).exists()) {
+    await retryFileOp(() => Directory(from).rename(to));
+    return;
+  }
+  if (p.rootPrefix(p.absolute(from)).toLowerCase() == p.rootPrefix(p.absolute(to)).toLowerCase()) {
+    await retryFileOp(() => File(from).rename(to));
+  } else {
+    // Different drive: copy then delete.
+    await retryFileOp(() => File(from).copy(to));
+    await retryFileOp(() => File(from).delete());
   }
 }
 
@@ -113,9 +148,17 @@ Future<void> writeBytesAtomic(String path, List<int> bytes) => _writeAtomic(path
 
 Future<void> _writeAtomic(String path, List<int> bytes) async {
   final tmp = File('$path.tmp');
-  await tmp.writeAsBytes(bytes, flush: true);
-  if (await File(path).exists()) await File(path).delete();
-  await tmp.rename(path);
+  await retryFileOp(() => tmp.writeAsBytes(bytes, flush: true));
+  await retryFileOp(() async {
+    try {
+      // Replaces an existing file in one step on every platform.
+      await tmp.rename(path);
+    } on FileSystemException {
+      if (!await File(path).exists()) rethrow;
+      await File(path).delete();
+      await tmp.rename(path);
+    }
+  });
 }
 
 /// Returns a path in [folder] named [base][ext] that doesn't exist yet,
@@ -144,7 +187,7 @@ class DeskLayout {
   double thumbWidth;
 
   static Future<DeskLayout> load(String folder) async {
-    final f = File(p.join(_metaDir(folder), 'layout.json'));
+    final f = File(p.join(metaDirOf(folder), 'layout.json'));
     if (!await f.exists()) return DeskLayout();
     try {
       final j = jsonDecode(await f.readAsString()) as Map<String, dynamic>;
@@ -159,7 +202,7 @@ class DeskLayout {
   }
 
   Future<void> save(String folder) async {
-    final dir = Directory(_metaDir(folder));
+    final dir = Directory(metaDirOf(folder));
     await dir.create(recursive: true);
     await _writeAtomic(
       p.join(dir.path, 'layout.json'),

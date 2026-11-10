@@ -15,6 +15,9 @@ enum AnnotationType {
   stamp, // 날짜 도장
 }
 
+/// 선 종류.
+enum LineStyle { solid, dashed, dotted, dashDot }
+
 const _uuid = Uuid();
 
 /// One annotation on one page.
@@ -32,6 +35,11 @@ class Annotation {
     this.text = '',
     this.fontSize = 14,
     this.fill,
+    this.lineStyle = LineStyle.solid,
+    this.heads,
+    this.fontFamily,
+    this.bold = false,
+    this.italic = false,
   }) : id = id ?? _uuid.v4();
 
   final String id;
@@ -48,7 +56,30 @@ class Annotation {
   /// Text, sticky: the content. Stamp: three lines (top label, date, name).
   String text;
   double fontSize;
+
+  /// Background (shapes, text, sticky); null is none.
   Color? fill;
+  LineStyle lineStyle;
+
+  /// Arrow heads of a line: bit 0 start, bit 1 end. Null means the type's
+  /// default (an arrow has one at the end).
+  int? heads;
+
+  /// Text font family (null = the default, 맑은 고딕), bold and italic.
+  String? fontFamily;
+  bool bold;
+  bool italic;
+
+  bool get startHead => ((heads ?? _defaultHeads) & 1) != 0;
+  bool get endHead => ((heads ?? _defaultHeads) & 2) != 0;
+  int get _defaultHeads => type == AnnotationType.arrow ? 2 : 0;
+
+  bool get isLine => type == AnnotationType.line || type == AnnotationType.arrow;
+  bool get isShape => type == AnnotationType.rect || type == AnnotationType.ellipse;
+  bool get hasText => type == AnnotationType.text || type == AnnotationType.sticky;
+
+  /// Whether a background can be set (shapes and text boxes).
+  bool get canFill => isShape || hasText;
 
   bool get isBoxed => type == AnnotationType.text || type == AnnotationType.sticky || type == AnnotationType.stamp;
 
@@ -76,6 +107,11 @@ class Annotation {
     text: text,
     fontSize: fontSize,
     fill: fill,
+    lineStyle: lineStyle,
+    heads: heads,
+    fontFamily: fontFamily,
+    bold: bold,
+    italic: italic,
   );
 
   void translate(Offset delta) {
@@ -128,6 +164,11 @@ class Annotation {
     if (text.isNotEmpty) 'text': text,
     'fontSize': fontSize,
     if (fill != null) 'fill': fill!.toARGB32(),
+    if (lineStyle != LineStyle.solid) 'lineStyle': lineStyle.name,
+    'heads': ?heads,
+    'fontFamily': ?fontFamily,
+    if (bold) 'bold': true,
+    if (italic) 'italic': true,
   };
 
   static double _r(double v) => (v * 100).roundToDouble() / 100;
@@ -142,6 +183,11 @@ class Annotation {
     text: j['text'] as String? ?? '',
     fontSize: (j['fontSize'] as num?)?.toDouble() ?? 14,
     fill: j['fill'] == null ? null : Color(j['fill'] as int),
+    lineStyle: LineStyle.values.asNameMap()[j['lineStyle']] ?? LineStyle.solid,
+    heads: j['heads'] as int?,
+    fontFamily: j['fontFamily'] as String?,
+    bold: j['bold'] as bool? ?? false,
+    italic: j['italic'] as bool? ?? false,
   );
 }
 

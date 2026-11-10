@@ -8,6 +8,7 @@ import '../../services/storage.dart';
 import '../common/dialogs.dart';
 import 'desk_actions.dart';
 import 'desk_canvas.dart';
+import '../../l10n/l10n.dart';
 
 /// Folder tree under the workspace root. Documents dragged from the desk can
 /// be dropped on a folder to move them there.
@@ -68,7 +69,7 @@ class _FolderTreeState extends State<FolderTree> {
     return [
       _FolderRow(
         path: folder,
-        label: folder == root ? '내 데스크' : p.basename(folder),
+        label: folder == root ? tr('내 데스크') : p.basename(folder),
         depth: depth,
         hasChildren: children.isNotEmpty,
         expanded: expanded,
@@ -92,13 +93,13 @@ class _FolderTreeState extends State<FolderTree> {
       context: context,
       position: RelativeRect.fromLTRB(pos.dx, pos.dy, pos.dx, pos.dy),
       items: [
-        const PopupMenuItem(value: 'new', child: Text('새 폴더')),
-        if (!isRoot) const PopupMenuItem(value: 'rename', child: Text('이름 바꾸기')),
-        const PopupMenuItem(value: 'explorer', child: Text('탐색기에서 열기')),
+        PopupMenuItem(value: 'new', child: Text(tr('새 폴더'))),
+        if (!isRoot) PopupMenuItem(value: 'rename', child: Text(tr('이름 바꾸기'))),
+        PopupMenuItem(value: 'explorer', child: Text(tr('탐색기에서 열기'))),
         if (!isRoot)
-          const PopupMenuItem(
+          PopupMenuItem(
             value: 'delete',
-            child: Text('삭제', style: TextStyle(color: Colors.red)),
+            child: Text(tr('삭제'), style: TextStyle(color: Colors.red)),
           ),
       ],
     );
@@ -107,7 +108,7 @@ class _FolderTreeState extends State<FolderTree> {
       case 'new':
         await newFolder(folder);
       case 'rename':
-        final name = await promptText(context, title: '폴더 이름 바꾸기', initial: p.basename(folder));
+        final name = await promptText(context, title: tr('폴더 이름 바꾸기'), initial: p.basename(folder));
         if (name == null || name.trim().isEmpty) return;
         final target = p.join(p.dirname(folder), sanitizeFileName(name));
         try {
@@ -122,9 +123,9 @@ class _FolderTreeState extends State<FolderTree> {
       case 'delete':
         final ok = await confirm(
           context,
-          title: '폴더 삭제',
-          message: "'${p.basename(folder)}' 폴더와 그 안의 모든 문서를 삭제할까요?",
-          okLabel: '삭제',
+          title: tr('폴더 삭제'),
+          message: tr("'{folder}' 폴더와 그 안의 모든 문서를 삭제할까요?", {'folder': p.basename(folder)}),
+          okLabel: tr('삭제'),
           destructive: true,
         );
         if (!ok) return;
@@ -139,7 +140,7 @@ class _FolderTreeState extends State<FolderTree> {
   }
 
   Future<void> newFolder(String parent) async {
-    final name = await promptText(context, title: '새 폴더', initial: '새 폴더');
+    final name = await promptText(context, title: tr('새 폴더'), initial: tr('새 폴더'));
     if (name == null || name.trim().isEmpty) return;
     final path = uniquePath(parent, sanitizeFileName(name), '');
     await Directory(path).create();

@@ -19,6 +19,15 @@ class Settings extends ChangeNotifier {
   /// the desk as one document, or spread it out one sheet per page.
   bool spreadPrinted = false;
 
+  /// Asked once at startup whether to install the PDF Desk printer.
+  bool printerPrompted = false;
+
+  /// Whether the desk shows the preview pane on the right.
+  bool showPreview = true;
+
+  /// UI language code (ko, ja, zh, en, es, fr).
+  String language = 'ko';
+
   /// Where the "PDF Desk" printer writes its output.
   String get inboxPath => p.join(_file.parent.path, 'inbox');
 
@@ -36,6 +45,9 @@ class Settings extends ChangeNotifier {
       s.stampName = j['stampName'] as String? ?? '';
       s.lastFolder = j['lastFolder'] as String? ?? '';
       s.spreadPrinted = j['spreadPrinted'] as bool? ?? false;
+      s.printerPrompted = j['printerPrompted'] as bool? ?? false;
+      s.showPreview = j['showPreview'] as bool? ?? true;
+      s.language = j['language'] as String? ?? 'ko';
     } catch (_) {}
     if (s.rootPath.isEmpty || !Directory(s.rootPath).existsSync()) {
       final docs = await getApplicationDocumentsDirectory();
@@ -58,6 +70,9 @@ class Settings extends ChangeNotifier {
         'stampName': stampName,
         'lastFolder': lastFolder,
         'spreadPrinted': spreadPrinted,
+        'printerPrompted': printerPrompted,
+        'showPreview': showPreview,
+        'language': language,
       }),
     );
   }

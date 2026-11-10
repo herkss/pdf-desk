@@ -9,7 +9,8 @@ import 'package:pdfium_dart/pdfium_dart.dart' as pdfium_bindings;
 import 'package:pdfrx/pdfrx.dart';
 
 import '../models/annotation.dart';
-import '../ui/common/annotation_painter.dart' show annotationTextStyle, arrowHead, stampLines;
+import '../ui/common/annotation_painter.dart' show arrowHead, dashPattern, stampLines, textStyleOf;
+import 'fonts.dart';
 
 /// Per-isolate; only used on pdfrx's worker isolate.
 pdfium_bindings.PDFium? _pdfium;
@@ -47,12 +48,19 @@ class _TextLine {
 
   /// 0 = left-aligned at x, 1 = centered on x.
   final int align;
+
+  /// Key of the embedded font ('' = the default), and whether bold/italic
+  /// must be faked because the font has no such face.
+  String font = '';
+  bool bold = false, italic = false;
 }
 
-List<_TextLine> _layoutText(String text, Offset at, double maxWidth, double size) {
+List<_TextLine> _layoutText(Annotation a, Offset at, double maxWidth) {
+  final text = a.text;
+  final size = a.fontSize;
   if (text.isEmpty) return [];
   final tp = TextPainter(
-    text: TextSpan(text: text, style: annotationTextStyle(size)),
+    text: TextSpan(text: text, style: textStyleOf(a)),
     textDirection: TextDirection.ltr,
   )..layout(maxWidth: math.max(1, maxWidth));
   final lines = <_TextLine>[];
@@ -71,9 +79,9 @@ List<_TextLine> _textLinesFor(Annotation a) {
   final r = a.bounds;
   switch (a.type) {
     case AnnotationType.text:
-      return _layoutText(a.text, r.topLeft + const Offset(2, 2), r.width - 4, a.fontSize);
+      return _layoutText(a, r.topLeft + const Offset(2, 2), r.width - 4);
     case AnnotationType.sticky:
-      return _layoutText(a.text, r.topLeft + const Offset(4, 4), r.width - 8, a.fontSize);
+      return _layoutText(a, r.topLeft + const Offset(4, 4), r.width - 8);
     case AnnotationType.stamp:
       final lines = stampLines(a.text);
       final third = r.height / 3;
@@ -90,6 +98,31 @@ List<_TextLine> _textLinesFor(Annotation a) {
       ];
     default:
       return [];
+  }
+}
+
+/// Picks the embedded font for [a]'s text: the face for its style, or the
+/// regular face with bold/italic faked, or the default font when the font
+/// isn't installed or can't show the line's characters.
+Future<void> _assignFont(Annotation a, List<_TextLine> lines, Map<String, Uint8List> fonts) async {
+  final choice = fontChoiceOf(a.fontFamily);
+  var face = choice.face(bold: a.bold, italic: a.italic);
+  var fakeBold = false, fakeItalic = false;
+  if (face == null || await loadFontFace(face) == null) {
+    face = choice.regular;
+    fakeBold = a.bold;
+    fakeItalic = a.italic;
+  }
+  final bytes = await loadFontFace(face);
+  final key = bytes == null ? '' : '${face.file}#${face.index}';
+  if (bytes != null) fonts[key] = bytes;
+  final latinOnly = RegExp(r'^[\u0000-\u024F\u2000-\u206F]*$');
+  for (final l in lines) {
+    final fallback = key.isEmpty || (!choice.korean && !latinOnly.hasMatch(l.text));
+    l
+      ..font = fallback ? '' : key
+      ..bold = fallback ? a.bold : fakeBold
+      ..italic = fallback ? a.italic : fakeItalic;
   }
 }
 
@@ -132,12 +165,19 @@ class _Affine {
 /// objects, so any PDF reader shows them and they print.
 Future<void> flattenAnnotations(PdfDocument doc, List<Annotation> annotations) async {
   if (annotations.isEmpty) return;
+  // Text layout needs dart:ui, so it is done here, not in the worker.
+  final textLines = {for (final a in annotations) a.id: _textLinesFor(a)};
+  final fonts = <String, Uint8List>{};
+  for (final a in annotations) {
+    if (!a.hasText || (a.fontFamily == null && !a.bold && !a.italic)) continue;
+    await _assignFont(a, textLines[a.id]!, fonts);
+  }
   final params = _FlattenParams(
     handle: await doc.useNativeDocumentHandle((h) => h),
     annotations: annotations,
-    // Text layout needs dart:ui, so it is done here, not in the worker.
-    textLines: {for (final a in annotations) a.id: _textLinesFor(a)},
+    textLines: textLines,
     fontBytes: await _loadCjkFont(),
+    fonts: fonts,
     modulePath: Pdfrx.pdfiumModulePath,
   );
   // PDFium may call back into pdfrx's font mapper, which only works on
@@ -151,12 +191,16 @@ class _FlattenParams {
     required this.annotations,
     required this.textLines,
     required this.fontBytes,
+    required this.fonts,
     required this.modulePath,
   });
   final int handle;
   final List<Annotation> annotations;
   final Map<String, List<_TextLine>> textLines;
   final Uint8List? fontBytes;
+
+  /// Fonts chosen for text annotations, by [_TextLine.font].
+  final Map<String, Uint8List> fonts;
   final String? modulePath;
 }
 
@@ -173,6 +217,14 @@ void _flattenOnWorker(_FlattenParams params) {
       font = lib.FPDFText_LoadFont(fdoc, buf, fontBytes.length, pdfium_bindings.FPDF_FONT_TRUETYPE, 1);
     } else {
       font = lib.FPDFText_LoadStandardFont(fdoc, 'Helvetica'.toNativeUtf8(allocator: arena).cast());
+    }
+
+    final fonts = <String, pdfium_bindings.FPDF_FONT>{'': font};
+    for (final MapEntry(:key, value: bytes) in params.fonts.entries) {
+      final buf = arena<Uint8>(bytes.length);
+      buf.asTypedList(bytes.length).setAll(0, bytes);
+      final f = lib.FPDFText_LoadFont(fdoc, buf, bytes.length, pdfium_bindings.FPDF_FONT_TRUETYPE, 1);
+      fonts[key] = f == nullptr ? font : f;
     }
 
     final byPage = <int, List<Annotation>>{};
@@ -192,25 +244,27 @@ void _flattenOnWorker(_FlattenParams params) {
         t.value = lib.FPDF_GetPageHeightF(page);
       }
       final m = _Affine.forPage(lib.FPDFPage_GetRotation(page), r.value - l.value, t.value - b.value, l.value, b.value);
-      final w = _Writer(lib, fdoc, page, font, m, arena);
+      final w = _Writer(lib, fdoc, page, fonts, m, arena);
       for (final a in entry.value) {
         w.draw(a, params.textLines[a.id]!);
       }
       lib.FPDFPage_GenerateContent(page);
       lib.FPDF_ClosePage(page);
     }
-    if (font != nullptr) lib.FPDFFont_Close(font);
+    for (final f in fonts.values.toSet()) {
+      if (f != nullptr) lib.FPDFFont_Close(f);
+    }
   } finally {
     arena.releaseAll();
   }
 }
 
 class _Writer {
-  _Writer(this.lib, this.doc, this.page, this.font, this.m, this.arena);
+  _Writer(this.lib, this.doc, this.page, this.fonts, this.m, this.arena);
   final pdfium_bindings.PDFium lib;
   final pdfium_bindings.FPDF_DOCUMENT doc;
   final pdfium_bindings.FPDF_PAGE page;
-  final pdfium_bindings.FPDF_FONT font;
+  final Map<String, pdfium_bindings.FPDF_FONT> fonts;
   final _Affine m;
   final Arena arena;
 
@@ -260,8 +314,27 @@ class _Writer {
 
   void _insert(pdfium_bindings.FPDF_PAGEOBJECT o) => lib.FPDFPage_InsertObject(page, o);
 
-  void _stroke(pdfium_bindings.FPDF_PAGEOBJECT o, Color c, double width, {double alpha = 1}) {
+  void _stroke(
+    pdfium_bindings.FPDF_PAGEOBJECT o,
+    Color c,
+    double width, {
+    double alpha = 1,
+    LineStyle style = LineStyle.solid,
+  }) {
+    if (width <= 0) {
+      lib.FPDFPageObj_Destroy(o);
+      return;
+    }
     _strokeStyle(o, c, width, alpha: alpha);
+    final pattern = dashPattern(style);
+    if (pattern.isNotEmpty) {
+      final w = math.max(width, 1.0);
+      final dashes = arena<Float>(pattern.length);
+      for (final (i, d) in pattern.indexed) {
+        dashes[i] = d * w;
+      }
+      lib.FPDFPageObj_SetDashArray(o, dashes, pattern.length, 0);
+    }
     lib.FPDFPath_SetDrawMode(o, 0, 1);
     _insert(o);
   }
@@ -275,7 +348,7 @@ class _Writer {
   void draw(Annotation a, List<_TextLine> lines) {
     switch (a.type) {
       case AnnotationType.pen:
-        if (a.points.isNotEmpty) _stroke(_polyline(a.points), a.color, a.strokeWidth);
+        if (a.points.isNotEmpty) _stroke(_polyline(a.points), a.color, a.strokeWidth, style: a.lineStyle);
       case AnnotationType.marker:
         if (a.points.isEmpty) return;
         final o = _polyline(a.points);
@@ -287,18 +360,20 @@ class _Writer {
       case AnnotationType.line:
       case AnnotationType.arrow:
         if (a.points.length < 2) return;
-        _stroke(_polyline(a.points), a.color, a.strokeWidth);
-        if (a.type == AnnotationType.arrow) {
-          for (final h in arrowHead(a.points[0], a.points[1], a.strokeWidth)) {
-            _stroke(_polyline([a.points[1], h]), a.color, a.strokeWidth);
+        final (p1, p2) = (a.points[0], a.points[1]);
+        _stroke(_polyline(a.points), a.color, a.strokeWidth, style: a.lineStyle);
+        for (final (on, from, to) in [(a.startHead, p2, p1), (a.endHead, p1, p2)]) {
+          if (!on) continue;
+          for (final h in arrowHead(from, to, a.strokeWidth)) {
+            _stroke(_polyline([to, h]), a.color, a.strokeWidth);
           }
         }
       case AnnotationType.rect:
         if (a.fill != null) _fill(_polyline(_rectPts(a.bounds), close: true), a.fill!);
-        _stroke(_polyline(_rectPts(a.bounds), close: true), a.color, a.strokeWidth);
+        _stroke(_polyline(_rectPts(a.bounds), close: true), a.color, a.strokeWidth, style: a.lineStyle);
       case AnnotationType.ellipse:
         if (a.fill != null) _fill(_ellipse(a.bounds), a.fill!);
-        _stroke(_ellipse(a.bounds), a.color, a.strokeWidth);
+        _stroke(_ellipse(a.bounds), a.color, a.strokeWidth, style: a.lineStyle);
       case AnnotationType.text:
         if (a.fill != null) _fill(_polyline(_rectPts(a.bounds), close: true), a.fill!);
         _text(lines, a.color);
@@ -319,8 +394,9 @@ class _Writer {
   }
 
   void _text(List<_TextLine> lines, Color color) {
-    if (font == nullptr) return;
     for (final line in lines) {
+      final font = fonts[line.font] ?? fonts['']!;
+      if (font == nullptr) continue;
       final o = lib.FPDFPageObj_CreateTextObj(doc, font, line.size);
       if (o == nullptr) continue;
       final units = line.text.codeUnits;
@@ -330,6 +406,12 @@ class _Writer {
         ..[units.length] = 0;
       lib.FPDFText_SetText(o, ws.cast());
       _fillStyle(o, color);
+      if (line.bold) {
+        // No bold face: outline the glyphs too, a little thicker.
+        lib.FPDFPageObj_SetStrokeColor(o, _c(color.r), _c(color.g), _c(color.b), _c(color.a));
+        lib.FPDFPageObj_SetStrokeWidth(o, line.size * 0.035);
+        lib.FPDFTextObj_SetTextRenderMode(o, pdfium_bindings.FPDF_TEXT_RENDERMODE.FPDF_TEXTRENDERMODE_FILL_STROKE);
+      }
 
       var x = line.x;
       if (line.align == 1) {
@@ -338,7 +420,9 @@ class _Writer {
       }
       // Text space has y up; flip into display space at the baseline, then map
       // to user space.
-      final tm = m.compose(_Affine(1, 0, 0, -1, x, line.baseline));
+      var tm = m.compose(_Affine(1, 0, 0, -1, x, line.baseline));
+      // No italic face: slant the upright glyphs.
+      if (line.italic) tm = tm.compose(const _Affine(1, 0, 0.21, 1, 0, 0));
       lib.FPDFPageObj_Transform(o, tm.a, tm.b, tm.c, tm.d, tm.e, tm.f);
       _insert(o);
     }

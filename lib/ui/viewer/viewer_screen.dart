@@ -11,9 +11,13 @@ import '../../services/settings.dart';
 import '../../services/storage.dart';
 import '../common/dialogs.dart';
 import '../common/toolbar.dart';
+import '../../models/annotation.dart';
+import 'annotation_style.dart';
 import 'page_sidebar.dart';
 import 'pages_view.dart';
 import 'viewer_controller.dart';
+import '../common/ios_theme.dart';
+import '../../l10n/l10n.dart';
 
 /// Viewer/editor for a document, or for each document of a binder (tabs).
 class ViewerScreen extends StatefulWidget {
@@ -94,7 +98,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
   Future<void> _rotatePages(int turns) async {
     final c = _c!;
     final pages = _targetPages;
-    await runBusy(context, '페이지 회전 중…', () async {
+    await runBusy(context, tr('페이지 회전 중…'), () async {
       await c.pageOperation(() => ops.rotatePages(c.path, pages, turns));
       return true;
     });
@@ -105,19 +109,19 @@ class _ViewerScreenState extends State<ViewerScreen> {
     final c = _c!;
     final pages = _targetPages;
     if (pages.length >= c.pages.length) {
-      showInfo(context, '모든 페이지를 삭제할 수는 없습니다. 데스크에서 문서를 삭제하세요.');
+      showInfo(context, tr('모든 페이지를 삭제할 수는 없습니다. 데스크에서 문서를 삭제하세요.'));
       return;
     }
     final ok = await confirm(
       context,
-      title: '페이지 삭제',
-      message: '${pages.length}개 페이지를 삭제할까요? 이 작업은 되돌릴 수 없습니다.',
-      okLabel: '삭제',
+      title: tr('페이지 삭제'),
+      message: tr('{n}개 페이지를 삭제할까요? 이 작업은 되돌릴 수 없습니다.', {'n': pages.length}),
+      okLabel: tr('삭제'),
       destructive: true,
     );
     if (!ok || !mounted) return;
     c.selectedPages.clear();
-    await runBusy(context, '페이지 삭제 중…', () async {
+    await runBusy(context, tr('페이지 삭제 중…'), () async {
       await c.pageOperation(() => ops.deletePages(c.path, pages));
       return true;
     });
@@ -127,17 +131,19 @@ class _ViewerScreenState extends State<ViewerScreen> {
   Future<void> _extractPages() async {
     final c = _c!;
     final pages = _targetPages.toList()..sort();
-    final out = await runBusy(context, '페이지 추출 중…', () async {
+    final out = await runBusy(context, tr('페이지 추출 중…'), () async {
       await c.save();
       return ops.extractPages(c.path, pages, deskFolder);
     });
-    if (out != null && mounted) showInfo(context, "데스크에 '${p.basenameWithoutExtension(out)}' 문서를 만들었습니다.");
+    if (out != null && mounted) {
+      showInfo(context, tr("데스크에 '{out}' 문서를 만들었습니다.", {'out': p.basenameWithoutExtension(out)}));
+    }
   }
 
   Future<void> _insertFile({required bool after}) async {
     final c = _c!;
     final picked = await FilePicker.pickFile(
-      dialogTitle: '삽입할 파일 선택',
+      dialogTitle: tr('삽입할 파일 선택'),
       type: FileType.custom,
       allowedExtensions: ['pdf', 'jpg', 'jpeg', 'png', 'bmp', 'gif', 'webp', 'tif', 'tiff'],
     );
@@ -146,11 +152,11 @@ class _ViewerScreenState extends State<ViewerScreen> {
     final at = after
         ? (_targetPages.reduce((a, b) => a > b ? a : b) + 1)
         : _targetPages.reduce((a, b) => a < b ? a : b);
-    await runBusy(context, '페이지 삽입 중…', () async {
+    await runBusy(context, tr('페이지 삽입 중…'), () async {
       final tmpDir = await Directory.systemTemp.createTemp('pdfdesk');
       try {
         final imported = await ops.importFile(src, tmpDir.path);
-        if (imported == null) throw StateError('지원하지 않는 파일입니다.');
+        if (imported == null) throw StateError(tr('지원하지 않는 파일입니다.'));
         await c.pageOperation(() => ops.insertDocument(c.path, imported, at));
       } finally {
         await tmpDir.delete(recursive: true);
@@ -163,7 +169,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
   Future<void> _reorder(List<int> order) async {
     final c = _c!;
     c.selectedPages.clear();
-    await runBusy(context, '페이지 순서 변경 중…', () async {
+    await runBusy(context, tr('페이지 순서 변경 중…'), () async {
       await c.pageOperation(() => ops.reorderPages(c.path, order));
       return true;
     });
@@ -174,18 +180,18 @@ class _ViewerScreenState extends State<ViewerScreen> {
     final choice = await showMenu<String>(
       context: context,
       position: RelativeRect.fromLTRB(pos.dx, pos.dy, pos.dx, pos.dy),
-      items: const [
-        PopupMenuItem(value: 'rotR', child: Text('오른쪽으로 회전')),
-        PopupMenuItem(value: 'rotL', child: Text('왼쪽으로 회전')),
-        PopupMenuItem(value: 'rot180', child: Text('180° 회전')),
+      items: [
+        PopupMenuItem(value: 'rotR', child: Text(tr('오른쪽으로 회전'))),
+        PopupMenuItem(value: 'rotL', child: Text(tr('왼쪽으로 회전'))),
+        PopupMenuItem(value: 'rot180', child: Text(tr('180° 회전'))),
         PopupMenuDivider(),
-        PopupMenuItem(value: 'extract', child: Text('페이지 추출 (새 문서)')),
-        PopupMenuItem(value: 'insertBefore', child: Text('앞에 파일 삽입…')),
-        PopupMenuItem(value: 'insertAfter', child: Text('뒤에 파일 삽입…')),
+        PopupMenuItem(value: 'extract', child: Text(tr('페이지 추출 (새 문서)'))),
+        PopupMenuItem(value: 'insertBefore', child: Text(tr('앞에 파일 삽입…'))),
+        PopupMenuItem(value: 'insertAfter', child: Text(tr('뒤에 파일 삽입…'))),
         PopupMenuDivider(),
         PopupMenuItem(
           value: 'delete',
-          child: Text('페이지 삭제', style: TextStyle(color: Colors.red)),
+          child: Text(tr('페이지 삭제'), style: TextStyle(color: Colors.red)),
         ),
       ],
     );
@@ -214,10 +220,10 @@ class _ViewerScreenState extends State<ViewerScreen> {
       context: context,
       position: RelativeRect.fromLTRB(pos.dx, pos.dy, pos.dx, pos.dy),
       items: [
-        if (index > 0) const PopupMenuItem(value: 'left', child: Text('왼쪽으로 이동')),
-        if (index < _docs.length - 1) const PopupMenuItem(value: 'right', child: Text('오른쪽으로 이동')),
-        const PopupMenuItem(value: 'rename', child: Text('이름 바꾸기')),
-        const PopupMenuItem(value: 'remove', child: Text('바인더에서 꺼내기')),
+        if (index > 0) PopupMenuItem(value: 'left', child: Text(tr('왼쪽으로 이동'))),
+        if (index < _docs.length - 1) PopupMenuItem(value: 'right', child: Text(tr('오른쪽으로 이동'))),
+        PopupMenuItem(value: 'rename', child: Text(tr('이름 바꾸기'))),
+        PopupMenuItem(value: 'remove', child: Text(tr('바인더에서 꺼내기'))),
       ],
     );
     await _c?.save();
@@ -231,7 +237,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
         await saveBinderOrder(widget.path, _docs);
         setState(() => _docIndex = _docIndex == index ? to : (_docIndex == to ? index : _docIndex));
       case 'rename':
-        final name = await promptText(context, title: '이름 바꾸기', initial: p.basenameWithoutExtension(_docs[index]));
+        final name = await promptText(context, title: tr('이름 바꾸기'), initial: p.basenameWithoutExtension(_docs[index]));
         if (name == null || name.trim().isEmpty || !mounted) return;
         final target = p.join(widget.path, '${sanitizeFileName(name)}.pdf');
         if (File(target).existsSync()) return;
@@ -254,13 +260,13 @@ class _ViewerScreenState extends State<ViewerScreen> {
 
   Future<void> _addToBinder() async {
     final picked = await FilePicker.pickFiles(
-      dialogTitle: '바인더에 추가',
+      dialogTitle: tr('바인더에 추가'),
       type: FileType.custom,
       allowedExtensions: ['pdf', 'jpg', 'jpeg', 'png', 'bmp', 'gif', 'webp', 'tif', 'tiff'],
     );
     final files = picked.map((f) => f.path).whereType<String>().toList();
     if (files.isEmpty || !mounted) return;
-    await runBusy(context, '바인더에 추가하는 중…', () async {
+    await runBusy(context, tr('바인더에 추가하는 중…'), () async {
       for (final f in files) {
         final out = await ops.importFile(f, widget.path);
         if (out != null) _docs.add(out);
@@ -277,24 +283,24 @@ class _ViewerScreenState extends State<ViewerScreen> {
     final c = _c!;
     await c.save();
     if (!mounted) return;
-    final bytes = await runBusy(context, 'PDF로 내보내는 중…', () => ops.exportFlattened([c.path]));
+    final bytes = await runBusy(context, tr('PDF로 내보내는 중…'), () => ops.exportFlattened([c.path]));
     if (bytes == null) return;
     final saved = await FilePicker.saveFile(
-      dialogTitle: 'PDF로 내보내기 (주석 포함)',
+      dialogTitle: tr('PDF로 내보내기 (주석 포함)'),
       fileName: '${p.basenameWithoutExtension(c.path)}.pdf',
       bytes: bytes,
       mimeType: 'application/pdf',
       type: FileType.custom,
       allowedExtensions: ['pdf'],
     );
-    if (saved != null && mounted) showInfo(context, '내보냈습니다.');
+    if (saved != null && mounted) showInfo(context, tr('내보냈습니다.'));
   }
 
   Future<void> _print() async {
     final c = _c!;
     await c.save();
     if (!mounted) return;
-    final bytes = await runBusy(context, '인쇄 준비 중…', () => ops.exportFlattened([c.path]));
+    final bytes = await runBusy(context, tr('인쇄 준비 중…'), () => ops.exportFlattened([c.path]));
     if (bytes == null) return;
     await Printing.layoutPdf(name: p.basenameWithoutExtension(c.path), onLayout: (_) async => bytes);
   }
@@ -304,7 +310,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
     await c.search(q);
     final hit = c.searchHits.isEmpty ? null : c.searchHits[c.searchIndex];
     if (hit != null) _pages?.goToPage(hit.page, reveal: hit.rects.firstOrNull);
-    if (q.isNotEmpty && c.searchHits.isEmpty && mounted) showInfo(context, "'$q'을(를) 찾을 수 없습니다.");
+    if (q.isNotEmpty && c.searchHits.isEmpty && mounted) showInfo(context, tr("'{q}'을(를) 찾을 수 없습니다.", {'q': q}));
   }
 
   void _nextHit(int delta) {
@@ -365,7 +371,9 @@ class _ViewerScreenState extends State<ViewerScreen> {
 
   Widget _body(ViewerController c) {
     if (c.loadError != null) {
-      return Center(child: Text('문서를 열 수 없습니다.\n${c.loadError}', textAlign: TextAlign.center));
+      return Center(
+        child: Text(tr('문서를 열 수 없습니다.\n{loadError}', {'loadError': c.loadError}), textAlign: TextAlign.center),
+      );
     }
     return CallbackShortcuts(
       bindings: _shortcuts(),
@@ -402,40 +410,40 @@ class _ViewerScreenState extends State<ViewerScreen> {
         ToolButton(icon: icon, label: label, tooltip: tip, active: c.tool == t, onPressed: () => c.setTool(t));
     return ToolbarRow(
       items: [
-        ToolButton(icon: Icons.arrow_back, label: '데스크', onPressed: () => Navigator.pop(context)),
+        ToolButton(icon: Icons.arrow_back, label: tr('데스크'), onPressed: () => Navigator.pop(context)),
         ToolButton(
           icon: Icons.view_sidebar_outlined,
-          label: '페이지',
+          label: tr('페이지'),
           active: _sidebar,
           onPressed: () => setState(() => _sidebar = !_sidebar),
         ),
         const ToolSeparator(),
-        tool(Tool.select, Icons.near_me_outlined, '선택', '선택/이동 (Esc)'),
-        tool(Tool.pen, Icons.edit_outlined, '펜', '자유선'),
-        tool(Tool.marker, Icons.brush_outlined, '형광펜', '형광펜'),
-        tool(Tool.line, Icons.horizontal_rule, '직선', 'Shift: 45° 단위'),
-        tool(Tool.arrow, Icons.arrow_right_alt, '화살표', 'Shift: 45° 단위'),
-        tool(Tool.rect, Icons.crop_square, '사각형', 'Shift: 정사각형'),
-        tool(Tool.ellipse, Icons.circle_outlined, '타원', 'Shift: 정원'),
-        tool(Tool.text, Icons.title, '텍스트', '클릭한 위치에 텍스트'),
-        tool(Tool.sticky, Icons.sticky_note_2_outlined, '부전', '스티커 메모'),
-        tool(Tool.stamp, Icons.approval_outlined, '도장', '날짜 도장'),
-        tool(Tool.eraser, Icons.auto_fix_normal_outlined, '지우개', '주석 지우기'),
+        tool(Tool.select, Icons.near_me_outlined, tr('선택'), tr('선택/이동 (Esc)')),
+        tool(Tool.pen, Icons.edit_outlined, tr('펜'), tr('자유선')),
+        tool(Tool.marker, Icons.brush_outlined, tr('형광펜'), tr('형광펜')),
+        tool(Tool.line, Icons.horizontal_rule, tr('직선'), tr('Shift: 45° 단위')),
+        tool(Tool.arrow, Icons.arrow_right_alt, tr('화살표'), tr('Shift: 45° 단위')),
+        tool(Tool.rect, Icons.crop_square, tr('사각형'), tr('Shift: 정사각형')),
+        tool(Tool.ellipse, Icons.circle_outlined, tr('타원'), tr('Shift: 정원')),
+        tool(Tool.text, Icons.title, tr('텍스트'), tr('클릭한 위치에 텍스트')),
+        tool(Tool.sticky, Icons.sticky_note_2_outlined, tr('부전'), tr('스티커 메모')),
+        tool(Tool.stamp, Icons.approval_outlined, tr('도장'), tr('날짜 도장')),
+        tool(Tool.eraser, Icons.auto_fix_normal_outlined, tr('지우개'), tr('주석 지우기')),
         const ToolSeparator(),
-        ToolButton(icon: Icons.undo, label: '실행 취소', onPressed: c.canUndo ? c.undo : null),
-        ToolButton(icon: Icons.redo, label: '다시 실행', onPressed: c.canRedo ? c.redo : null),
+        ToolButton(icon: Icons.undo, label: tr('실행 취소'), onPressed: c.canUndo ? c.undo : null),
+        ToolButton(icon: Icons.redo, label: tr('다시 실행'), onPressed: c.canRedo ? c.redo : null),
         ToolButton(
           icon: c.showAnnotations ? Icons.visibility_outlined : Icons.visibility_off_outlined,
-          label: '주석 표시',
+          label: tr('주석 표시'),
           active: c.showAnnotations,
           onPressed: c.toggleAnnotations,
         ),
         const ToolSeparator(),
-        ToolButton(icon: Icons.rotate_left, label: '왼쪽 회전', onPressed: () => _rotatePages(3)),
-        ToolButton(icon: Icons.rotate_right, label: '오른쪽 회전', onPressed: () => _rotatePages(1)),
+        ToolButton(icon: Icons.rotate_left, label: tr('왼쪽 회전'), onPressed: () => _rotatePages(3)),
+        ToolButton(icon: Icons.rotate_right, label: tr('오른쪽 회전'), onPressed: () => _rotatePages(1)),
         const ToolSeparator(),
-        ToolButton(icon: Icons.picture_as_pdf_outlined, label: 'PDF 내보내기', onPressed: _export),
-        ToolButton(icon: Icons.print_outlined, label: '인쇄', onPressed: _print),
+        ToolButton(icon: Icons.picture_as_pdf_outlined, label: tr('PDF 내보내기'), onPressed: _export),
+        ToolButton(icon: Icons.print_outlined, label: tr('인쇄'), onPressed: _print),
       ],
       trailing: [
         const SizedBox(width: 8),
@@ -455,7 +463,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
                       child: SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2)),
                     )
                   : const Icon(Icons.search, size: 18),
-              hintText: '문서 내 검색',
+              hintText: tr('문서 내 검색'),
               border: const OutlineInputBorder(),
             ),
           ),
@@ -467,17 +475,17 @@ class _ViewerScreenState extends State<ViewerScreen> {
           ),
           IconButton(
             icon: const Icon(Icons.keyboard_arrow_up),
-            tooltip: '이전 (Shift+F3)',
+            tooltip: tr('이전 (Shift+F3)'),
             onPressed: () => _nextHit(-1),
           ),
-          IconButton(icon: const Icon(Icons.keyboard_arrow_down), tooltip: '다음 (F3)', onPressed: () => _nextHit(1)),
+          IconButton(icon: const Icon(Icons.keyboard_arrow_down), tooltip: tr('다음 (F3)'), onPressed: () => _nextHit(1)),
         ],
       ],
     );
   }
 
   Widget _propertyBar(ViewerController c) {
-    final colors = c.tool == Tool.sticky ? stickyColors : annotationColors;
+    final sticky = c.tool == Tool.sticky;
     final showStroke = const {
       Tool.pen,
       Tool.marker,
@@ -487,76 +495,132 @@ class _ViewerScreenState extends State<ViewerScreen> {
       Tool.ellipse,
       Tool.select,
     }.contains(c.tool);
+    final showDash = showStroke && c.tool != Tool.marker;
+    final showFill = const {Tool.rect, Tool.ellipse, Tool.text, Tool.select}.contains(c.tool);
     final showFont = const {Tool.text, Tool.sticky, Tool.select}.contains(c.tool);
+    const label = TextStyle(fontSize: 12, color: Colors.black54);
+    const gap = SizedBox(width: 16);
     return Container(
-      height: 38,
-      color: const Color(0xFFF4F6F8),
+      height: 40,
+      decoration: const BoxDecoration(
+        color: IosColors.bar,
+        border: Border(bottom: iosHairline),
+      ),
       padding: const EdgeInsets.symmetric(horizontal: 12),
       child: Row(
         children: [
-          const Text('색상', style: TextStyle(fontSize: 12, color: Colors.black54)),
-          const SizedBox(width: 6),
-          for (final col in colors)
-            InkWell(
-              onTap: () => c.setColor(col),
-              child: Container(
-                width: 22,
-                height: 22,
-                margin: const EdgeInsets.symmetric(horizontal: 2),
-                decoration: BoxDecoration(
-                  color: col,
-                  shape: BoxShape.circle,
-                  border: Border.all(
-                    color: c.activeColor.toARGB32() == col.toARGB32() ? Colors.black87 : Colors.black12,
-                    width: c.activeColor.toARGB32() == col.toARGB32() ? 2.5 : 1,
+          Expanded(
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  Text(sticky ? tr('부전 색') : tr('색상'), style: label),
+                  const SizedBox(width: 4),
+                  ColorRow(
+                    controller: c,
+                    colors: sticky ? stickyColors : annotationColors.take(8).toList(),
+                    value: c.activeColor,
+                    onChanged: (v) {
+                      if (v != null) c.setColor(v);
+                    },
                   ),
-                ),
+                  if (showStroke) ...[
+                    gap,
+                    Text(tr('굵기'), style: label),
+                    const SizedBox(width: 4),
+                    for (final w in const [1.0, 2.0, 4.0, 8.0])
+                      InkWell(
+                        onTap: () => c.setStrokeWidth(w),
+                        child: Container(
+                          width: 30,
+                          height: 26,
+                          alignment: Alignment.center,
+                          decoration: BoxDecoration(
+                            color: c.strokeWidth == w ? Theme.of(context).colorScheme.primaryContainer : null,
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Container(width: 18, height: w.clamp(1, 6), color: Colors.black87),
+                        ),
+                      ),
+                  ],
+                  if (showDash) ...[
+                    gap,
+                    Text(tr('선 종류'), style: label),
+                    const SizedBox(width: 4),
+                    DropdownButton<LineStyle>(
+                      value: c.lineStyle,
+                      isDense: true,
+                      underline: const SizedBox(),
+                      items: [
+                        for (final s in LineStyle.values)
+                          DropdownMenuItem(
+                            value: s,
+                            child: Row(
+                              children: [
+                                LineStyleSample(s),
+                                const SizedBox(width: 6),
+                                Text(lineStyleLabels[s]!, style: const TextStyle(fontSize: 13)),
+                              ],
+                            ),
+                          ),
+                      ],
+                      onChanged: (v) => c.setLineStyle(v!),
+                    ),
+                  ],
+                  if (showFill) ...[
+                    gap,
+                    Text(tr('배경'), style: label),
+                    const SizedBox(width: 4),
+                    ColorRow(
+                      controller: c,
+                      colors: fillColors.take(5).toList(),
+                      allowNone: true,
+                      value: c.fill,
+                      onChanged: c.setFill,
+                    ),
+                  ],
+                  if (showFont) ...[
+                    gap,
+                    Text(tr('글꼴'), style: label),
+                    const SizedBox(width: 4),
+                    fontFamilyMenu(
+                      value: c.fontFamily,
+                      onChanged: (f) => c.setFont(family: f),
+                    ),
+                    const SizedBox(width: 8),
+                    fontSizeMenu(value: c.fontSize, onChanged: c.setFontSize),
+                    const SizedBox(width: 6),
+                    IconButton(
+                      tooltip: tr('굵게'),
+                      isSelected: c.bold,
+                      visualDensity: VisualDensity.compact,
+                      icon: const Icon(Icons.format_bold),
+                      onPressed: () => c.setFont(bold: !c.bold),
+                    ),
+                    IconButton(
+                      tooltip: tr('기울임'),
+                      isSelected: c.italic,
+                      visualDensity: VisualDensity.compact,
+                      icon: const Icon(Icons.format_italic),
+                      onPressed: () => c.setFont(italic: !c.italic),
+                    ),
+                  ],
+                ],
               ),
             ),
-          if (showStroke) ...[
-            const SizedBox(width: 18),
-            const Text('굵기', style: TextStyle(fontSize: 12, color: Colors.black54)),
-            const SizedBox(width: 4),
-            for (final w in const [1.0, 2.0, 4.0, 8.0])
-              InkWell(
-                onTap: () => c.setStrokeWidth(w),
-                child: Container(
-                  width: 30,
-                  height: 26,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    color: c.strokeWidth == w ? Theme.of(context).colorScheme.primaryContainer : null,
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: Container(width: 18, height: w.clamp(1, 6), color: Colors.black87),
-                ),
-              ),
-          ],
-          if (showFont) ...[
-            const SizedBox(width: 18),
-            const Text('글자 크기', style: TextStyle(fontSize: 12, color: Colors.black54)),
-            const SizedBox(width: 4),
-            DropdownButton<double>(
-              value: c.fontSize,
-              isDense: true,
-              underline: const SizedBox(),
-              items: [
-                for (final s in const [8.0, 10.0, 12.0, 14.0, 18.0, 24.0, 32.0])
-                  DropdownMenuItem(
-                    value: s,
-                    child: Text('${s.toInt()}pt', style: const TextStyle(fontSize: 13)),
-                  ),
-              ],
-              onChanged: (v) => c.setFontSize(v!),
+          ),
+          if (c.selectedIds.isNotEmpty) ...[
+            TextButton.icon(
+              onPressed: () => showAnnotationStyleDialog(context, c),
+              icon: const Icon(Icons.tune, size: 18),
+              label: Text(tr('속성…')),
             ),
-          ],
-          const Spacer(),
-          if (c.selectedIds.isNotEmpty)
             TextButton.icon(
               onPressed: c.deleteSelected,
               icon: const Icon(Icons.delete_outline, size: 18),
-              label: Text('선택한 주석 삭제 (${c.selectedIds.length})'),
+              label: Text(tr('삭제 ({n})', {'n': c.selectedIds.length})),
             ),
+          ],
         ],
       ),
     );
@@ -568,7 +632,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
     child: Row(
       children: [
         const SizedBox(width: 8),
-        const Icon(Icons.collections_bookmark, size: 18, color: Color(0xFF3F51B5)),
+        const Icon(Icons.collections_bookmark, size: 18, color: IosColors.blue),
         const SizedBox(width: 6),
         Text(title, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
         const SizedBox(width: 12),
@@ -605,7 +669,7 @@ class _ViewerScreenState extends State<ViewerScreen> {
             },
           ),
         ),
-        IconButton(tooltip: '바인더에 문서 추가', icon: const Icon(Icons.add, size: 20), onPressed: _addToBinder),
+        IconButton(tooltip: tr('바인더에 문서 추가'), icon: const Icon(Icons.add, size: 20), onPressed: _addToBinder),
       ],
     ),
   );
@@ -625,21 +689,21 @@ class _ViewerScreenState extends State<ViewerScreen> {
         ),
         IconButton(
           iconSize: 18,
-          tooltip: '이전 페이지',
+          tooltip: tr('이전 페이지'),
           icon: const Icon(Icons.chevron_left),
           onPressed: () => _pages?.goToPage(c.currentPage - 1),
         ),
         Text('${c.pages.isEmpty ? 0 : c.currentPage + 1} / ${c.pages.length}', style: const TextStyle(fontSize: 12)),
         IconButton(
           iconSize: 18,
-          tooltip: '다음 페이지',
+          tooltip: tr('다음 페이지'),
           icon: const Icon(Icons.chevron_right),
           onPressed: () => _pages?.goToPage(c.currentPage + 1),
         ),
         const SizedBox(width: 16),
         IconButton(
           iconSize: 18,
-          tooltip: '축소',
+          tooltip: tr('축소'),
           icon: const Icon(Icons.zoom_out),
           onPressed: () => c.setZoom(c.zoom / 1.2),
         ),
@@ -649,17 +713,17 @@ class _ViewerScreenState extends State<ViewerScreen> {
         ),
         IconButton(
           iconSize: 18,
-          tooltip: '확대',
+          tooltip: tr('확대'),
           icon: const Icon(Icons.zoom_in),
           onPressed: () => c.setZoom(c.zoom * 1.2),
         ),
         TextButton(
           onPressed: () => _pages?.fitWidth(),
-          child: const Text('폭 맞춤', style: TextStyle(fontSize: 12)),
+          child: Text(tr('폭 맞춤'), style: TextStyle(fontSize: 12)),
         ),
         TextButton(
           onPressed: () => _pages?.fitPage(),
-          child: const Text('전체 페이지', style: TextStyle(fontSize: 12)),
+          child: Text(tr('전체 페이지'), style: TextStyle(fontSize: 12)),
         ),
       ],
     ),

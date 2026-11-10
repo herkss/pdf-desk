@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -10,7 +11,9 @@ import '../../services/pdf_ops.dart' as ops;
 import '../../services/storage.dart';
 import '../../services/thumbnails.dart';
 import '../common/dialogs.dart';
+import 'new_document_dialog.dart';
 import '../viewer/viewer_screen.dart';
+import '../../l10n/l10n.dart';
 
 /// User-facing desk operations. Each one works on the current selection
 /// unless given explicit entries.
@@ -41,7 +44,7 @@ class DeskActions {
     var files = paths;
     if (files == null) {
       final picked = await FilePicker.pickFiles(
-        dialogTitle: '데스크로 가져오기',
+        dialogTitle: tr('데스크로 가져오기'),
         type: FileType.custom,
         allowedExtensions: ['pdf', 'jpg', 'jpeg', 'png', 'bmp', 'gif', 'webp', 'tif', 'tiff'],
       );
@@ -50,7 +53,7 @@ class DeskActions {
     if (files.isEmpty || !context.mounted) return;
     final importable = files.where(isImportable).toList();
     final skipped = files.length - importable.length;
-    final created = await runBusy(context, '가져오는 중… (${importable.length}개)', () async {
+    final created = await runBusy(context, tr('가져오는 중… ({n}개)', {'n': importable.length}), () async {
       final out = <String>[];
       for (final f in importable) {
         final r = await ops.importFile(f, desk.folder);
@@ -61,20 +64,35 @@ class DeskActions {
     if (created == null) return;
     desk.place(created, at: at);
     await _done();
-    if (skipped > 0 && context.mounted) showInfo(context, '지원하지 않는 파일 $skipped개는 건너뛰었습니다.');
+    if (skipped > 0 && context.mounted) showInfo(context, tr('지원하지 않는 파일 {n}개는 건너뛰었습니다.', {'n': skipped}));
+  }
+
+  /// 새 문서: asks for the paper and lays a blank document at [at].
+  Future<void> newDocument([Offset? at]) async {
+    final r = await showNewDocumentDialog(context);
+    if (r == null || !context.mounted) return;
+    final out = await runBusy(
+      context,
+      tr('만드는 중…'),
+      () => ops.createBlank(desk.folder, r.name, r.size, pages: r.pages),
+    );
+    if (out == null) return;
+    desk.place([out], at: at);
+    await _done();
+    desk.selectPaths([out]);
   }
 
   Future<void> combine([List<DeskEntry>? entries]) async {
     final list = entries ?? _sel;
     if (list.length < 2) {
-      showInfo(context, '묶을 문서를 2개 이상 선택하세요.');
+      showInfo(context, tr('묶을 문서를 2개 이상 선택하세요.'));
       return;
     }
-    final name = await promptText(context, title: '문서 묶기', label: '새 문서 이름', initial: list.first.title);
+    final name = await promptText(context, title: tr('문서 묶기'), label: tr('새 문서 이름'), initial: list.first.title);
     if (name == null || name.trim().isEmpty || !context.mounted) return;
-    final keep = await _askKeepOriginals('묶기');
+    final keep = await _askKeepOriginals(tr('묶기'));
     if (keep == null || !context.mounted) return;
-    final out = await runBusy(context, '문서를 묶는 중…', () async {
+    final out = await runBusy(context, tr('문서를 묶는 중…'), () async {
       final out = await ops.combine([for (final e in list) e.path], desk.folder, name);
       if (!keep) {
         for (final e in list) {
@@ -92,12 +110,12 @@ class DeskActions {
   Future<void> split([DeskEntry? entry]) async {
     final e = entry ?? (_sel.length == 1 ? _sel.first : null);
     if (e == null || e.isBinder) {
-      showInfo(context, '분할할 문서 1개를 선택하세요.');
+      showInfo(context, tr('분할할 문서 1개를 선택하세요.'));
       return;
     }
-    final keep = await _askKeepOriginals('분할');
+    final keep = await _askKeepOriginals(tr('분할'));
     if (keep == null || !context.mounted) return;
-    final outs = await runBusy(context, '페이지별로 분할하는 중…', () async {
+    final outs = await runBusy(context, tr('페이지별로 분할하는 중…'), () async {
       final outs = await ops.splitPages(e.path, desk.folder);
       if (!keep) await deleteDocument(e.path);
       return outs;
@@ -113,11 +131,11 @@ class DeskActions {
   Future<void> spread([DeskEntry? entry]) async {
     final list = entry != null ? [entry] : _sel;
     if (list.isEmpty) {
-      showInfo(context, '펼칠 문서를 선택하세요.');
+      showInfo(context, tr('펼칠 문서를 선택하세요.'));
       return;
     }
     final origin = list.map(desk.positionOf).reduce((a, b) => a.dy < b.dy || (a.dy == b.dy && a.dx < b.dx) ? a : b);
-    final groups = await runBusy(context, '낱장으로 펼치는 중…', () async {
+    final groups = await runBusy(context, tr('낱장으로 펼치는 중…'), () async {
       final groups = <List<String>>[];
       for (final e in list) {
         if (e.isBinder) {
@@ -130,7 +148,7 @@ class DeskActions {
     });
     if (groups == null) return;
     if (groups.isEmpty) {
-      if (context.mounted) showInfo(context, '한 장짜리 문서는 펼칠 수 없습니다.');
+      if (context.mounted) showInfo(context, tr('한 장짜리 문서는 펼칠 수 없습니다.'));
       return;
     }
     desk.placeSpreadRows(groups, origin);
@@ -160,7 +178,10 @@ class DeskActions {
     await _done();
     desk.selectPaths(placed);
     if (context.mounted && paths.isNotEmpty) {
-      showInfo(context, paths.length == 1 ? '인쇄한 문서를 데스크에 놓았습니다.' : '인쇄한 문서 ${paths.length}개를 데스크에 놓았습니다.');
+      showInfo(
+        context,
+        paths.length == 1 ? tr('인쇄한 문서를 데스크에 놓았습니다.') : tr('인쇄한 문서 {n}개를 데스크에 놓았습니다.', {'n': paths.length}),
+      );
     }
   }
 
@@ -171,20 +192,53 @@ class DeskActions {
       await addToBinder(target, sources);
       return;
     }
-    final r = await runBusy(context, '문서를 겹치는 중…', () async {
+    final before = {
+      for (final s in [target.path, ...sources]) p.basename(s): desk.layout.positions[p.basename(s)],
+    };
+    // The previous 겹치기 can't be undone any more; drop its 실행 취소 now.
+    final messenger = ScaffoldMessenger.maybeOf(context)?..removeCurrentSnackBar();
+    final undo = await runBusy(context, tr('문서를 겹치는 중…'), () async {
+      final undo = await ops.StackUndo.capture(desk.folder, [target.path, ...sources]);
       await ops.stackOnto(target.path, sources);
-      return true;
+      return undo;
     });
-    if (r == null) return;
+    if (undo == null) return;
     await _done();
     desk.selectOnly(target);
+    final pages = await ops.pageCountOf(target.path);
+    messenger
+      ?..removeCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(tr("'{title}'에 겹쳤습니다 (모두 {pages}쪽)", {'title': target.title, 'pages': pages})),
+          duration: const Duration(seconds: 6),
+          action: SnackBarAction(label: tr('실행 취소'), onPressed: () => _undoStack(undo, before)),
+        ),
+      );
+  }
+
+  /// Undoes a 겹치기 without needing this widget's context any more (the
+  /// dragged documents' cards are gone by then).
+  Future<void> _undoStack(ops.StackUndo undo, Map<String, Offset?> positions) async {
+    try {
+      await undo.restore();
+    } catch (e) {
+      if (context.mounted) showError(context, e);
+      return;
+    }
+    positions.forEach((name, pos) {
+      if (pos != null) desk.layout.positions[name] = pos;
+    });
+    ThumbnailService.instance.invalidate();
+    await desk.refresh();
+    desk.selectPaths(undo.paths);
   }
 
   /// 겹치기 for the selection: everything goes onto the first selected item.
   Future<void> stackSelection() async {
     final list = _sel;
     if (list.length < 2) {
-      showInfo(context, '겹칠 문서를 2개 이상 선택하세요.');
+      showInfo(context, tr('겹칠 문서를 2개 이상 선택하세요.'));
       return;
     }
     await stackOnto(list.first, [for (final e in list.skip(1)) e.path]);
@@ -193,12 +247,12 @@ class DeskActions {
   Future<bool?> _askKeepOriginals(String verb) => showDialog<bool>(
     context: context,
     builder: (context) => AlertDialog(
-      title: Text('원본 문서'),
-      content: Text('$verb 후 원본 문서를 어떻게 할까요?'),
+      title: Text(tr('원본 문서')),
+      content: Text(tr('{verb} 후 원본 문서를 어떻게 할까요?', {'verb': verb})),
       actions: [
-        TextButton(onPressed: () => Navigator.pop(context), child: const Text('취소')),
-        TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('원본 삭제')),
-        FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('원본 유지')),
+        TextButton(onPressed: () => Navigator.pop(context), child: Text(tr('취소'))),
+        TextButton(onPressed: () => Navigator.pop(context, false), child: Text(tr('원본 삭제'))),
+        FilledButton(onPressed: () => Navigator.pop(context, true), child: Text(tr('원본 유지'))),
       ],
     ),
   );
@@ -206,14 +260,14 @@ class DeskActions {
   Future<void> makeBinder([List<DeskEntry>? entries]) async {
     final list = entries ?? _sel;
     if (list.isEmpty) {
-      showInfo(context, '바인더에 넣을 문서를 선택하세요.');
+      showInfo(context, tr('바인더에 넣을 문서를 선택하세요.'));
       return;
     }
-    final name = await promptText(context, title: '바인더 만들기', label: '바인더 이름', initial: '새 바인더');
+    final name = await promptText(context, title: tr('바인더 만들기'), label: tr('바인더 이름'), initial: tr('새 바인더'));
     if (name == null || name.trim().isEmpty || !context.mounted) return;
     final out = await runBusy(
       context,
-      '바인더를 만드는 중…',
+      tr('바인더를 만드는 중…'),
       () => ops.createBinder([for (final e in list) e.path], desk.folder, name),
     );
     if (out == null) return;
@@ -222,7 +276,7 @@ class DeskActions {
   }
 
   Future<void> addToBinder(DeskEntry binder, List<String> docs) async {
-    final r = await runBusy(context, '바인더에 추가하는 중…', () async {
+    final r = await runBusy(context, tr('바인더에 추가하는 중…'), () async {
       await ops.addToBinder(binder.path, docs);
       return true;
     });
@@ -232,11 +286,11 @@ class DeskActions {
   Future<void> unbind([DeskEntry? entry]) async {
     final e = entry ?? (_sel.length == 1 ? _sel.first : null);
     if (e == null || !e.isBinder) {
-      showInfo(context, '해제할 바인더를 선택하세요.');
+      showInfo(context, tr('해제할 바인더를 선택하세요.'));
       return;
     }
     final origin = desk.positionOf(e);
-    final outs = await runBusy(context, '바인더를 해제하는 중…', () => ops.unbind(e.path));
+    final outs = await runBusy(context, tr('바인더를 해제하는 중…'), () => ops.unbind(e.path));
     if (outs == null) return;
     desk.placeSpread(outs, origin);
     await _done();
@@ -246,7 +300,7 @@ class DeskActions {
   Future<void> rotate(int quarterTurns) async {
     final docs = _sel.where((e) => !e.isBinder).toList();
     if (docs.isEmpty) return;
-    await runBusy(context, '회전하는 중…', () async {
+    await runBusy(context, tr('회전하는 중…'), () async {
       for (final e in docs) {
         final n = await ops.pageCountOf(e.path);
         await ops.rotatePages(e.path, {for (var i = 0; i < n; i++) i}, quarterTurns);
@@ -259,12 +313,12 @@ class DeskActions {
   Future<void> rename([DeskEntry? entry]) async {
     final e = entry ?? (_sel.length == 1 ? _sel.first : null);
     if (e == null) return;
-    final name = await promptText(context, title: '이름 바꾸기', initial: e.title);
+    final name = await promptText(context, title: tr('이름 바꾸기'), initial: e.title);
     if (name == null || name.trim().isEmpty || name == e.title || !context.mounted) return;
     final ext = e.isBinder ? binderExt : '.pdf';
     final target = p.join(desk.folder, '${sanitizeFileName(name)}$ext');
     if (File(target).existsSync() || Directory(target).existsSync()) {
-      showInfo(context, '같은 이름이 이미 있습니다.');
+      showInfo(context, tr('같은 이름이 이미 있습니다.'));
       return;
     }
     try {
@@ -280,31 +334,50 @@ class DeskActions {
   Future<void> duplicate() async {
     final docs = _sel;
     if (docs.isEmpty) return;
-    final outs = await runBusy(context, '복제하는 중…', () async {
-      final outs = <String>[];
-      for (final e in docs) {
-        if (e.isBinder) {
-          final target = uniquePath(desk.folder, '${e.title} 복사본', binderExt);
-          await Directory(target).create();
-          final copied = <String>[];
-          for (final d in await binderDocuments(e.path)) {
-            final t = p.join(target, p.basename(d));
-            await copyDocument(d, t);
-            copied.add(t);
-          }
-          await saveBinderOrder(target, copied);
-          outs.add(target);
-        } else {
-          final target = uniquePath(desk.folder, '${e.title} 복사본', '.pdf');
-          await copyDocument(e.path, target);
-          outs.add(target);
-        }
-      }
-      return outs;
-    });
+    final outs = await runBusy(context, tr('복제하는 중…'), () => _copyEntries(docs));
     if (outs == null) return;
     desk.place(outs, at: desk.positionOf(docs.first));
     await _done();
+  }
+
+  /// Ctrl + drag: copies of [paths] are laid down [delta] away from the
+  /// originals, keeping their arrangement, on top and selected.
+  Future<void> copyDragged(List<String> paths, Offset delta) async {
+    final docs = [for (final s in paths) ...desk.entries.where((e) => e.path == s)];
+    if (docs.isEmpty) return;
+    final outs = await runBusy(context, tr('복사하는 중…'), () => _copyEntries(docs));
+    if (outs == null) return;
+    for (final (i, out) in outs.indexed) {
+      final pos = desk.positionOf(docs[i]) + delta;
+      desk.layout.positions[p.basename(out)] = Offset(math.max(0, pos.dx), math.max(0, pos.dy));
+    }
+    desk.endMove();
+    await _done();
+    desk.selectPaths(outs);
+  }
+
+  /// Copies documents and binders (with their annotations) as '… 복사본'.
+  Future<List<String>> _copyEntries(List<DeskEntry> docs) async {
+    final outs = <String>[];
+    for (final e in docs) {
+      if (e.isBinder) {
+        final target = uniquePath(desk.folder, tr('{title} 복사본', {'title': e.title}), binderExt);
+        await Directory(target).create();
+        final copied = <String>[];
+        for (final d in await binderDocuments(e.path)) {
+          final t = p.join(target, p.basename(d));
+          await copyDocument(d, t);
+          copied.add(t);
+        }
+        await saveBinderOrder(target, copied);
+        outs.add(target);
+      } else {
+        final target = uniquePath(desk.folder, tr('{title} 복사본', {'title': e.title}), '.pdf');
+        await copyDocument(e.path, target);
+        outs.add(target);
+      }
+    }
+    return outs;
   }
 
   Future<void> delete() async {
@@ -312,13 +385,15 @@ class DeskActions {
     if (docs.isEmpty) return;
     final ok = await confirm(
       context,
-      title: '삭제',
-      message: docs.length == 1 ? "'${docs.first.title}'을(를) 삭제할까요?" : '${docs.length}개 항목을 삭제할까요?',
-      okLabel: '삭제',
+      title: tr('삭제'),
+      message: docs.length == 1
+          ? tr("'{title}'을(를) 삭제할까요?", {'title': docs.first.title})
+          : tr('{n}개 항목을 삭제할까요?', {'n': docs.length}),
+      okLabel: tr('삭제'),
       destructive: true,
     );
     if (!ok || !context.mounted) return;
-    await runBusy(context, '삭제하는 중…', () async {
+    await runBusy(context, tr('삭제하는 중…'), () async {
       for (final e in docs) {
         await deleteDocument(e.path);
       }
@@ -330,24 +405,26 @@ class DeskActions {
   Future<void> exportPdf([List<DeskEntry>? entries]) async {
     final list = entries ?? _sel;
     if (list.isEmpty) return;
-    final suggested = list.length == 1 ? '${list.first.title}.pdf' : '내보내기.pdf';
-    final bytes = await runBusy(context, 'PDF로 내보내는 중…', () => ops.exportFlattened([for (final e in list) e.path]));
+    final suggested = list.length == 1 ? '${list.first.title}.pdf' : tr('내보내기.pdf');
+    final bytes = await runBusy(context, tr('PDF로 내보내는 중…'), () => ops.exportFlattened([for (final e in list) e.path]));
     if (bytes == null || !context.mounted) return;
     final saved = await FilePicker.saveFile(
-      dialogTitle: 'PDF로 내보내기 (주석 포함)',
+      dialogTitle: tr('PDF로 내보내기 (주석 포함)'),
       fileName: suggested,
       bytes: bytes,
       mimeType: 'application/pdf',
       type: FileType.custom,
       allowedExtensions: ['pdf'],
     );
-    if (saved != null && context.mounted) showInfo(context, '내보냈습니다: ${saved.toFilePath()}');
+    if (saved != null && context.mounted) {
+      showInfo(context, tr('내보냈습니다: {toFilePath}', {'toFilePath': saved.toFilePath()}));
+    }
   }
 
   Future<void> printDocs([List<DeskEntry>? entries]) async {
     final list = entries ?? _sel;
     if (list.isEmpty) return;
-    final bytes = await runBusy(context, '인쇄 준비 중…', () => ops.exportFlattened([for (final e in list) e.path]));
+    final bytes = await runBusy(context, tr('인쇄 준비 중…'), () => ops.exportFlattened([for (final e in list) e.path]));
     if (bytes == null) return;
     await Printing.layoutPdf(name: list.first.title, onLayout: (_) async => bytes);
   }
@@ -365,7 +442,7 @@ class DeskActions {
 
   Future<void> moveToFolder(List<String> paths, String folder) async {
     if (folder == desk.folder) return;
-    await runBusy(context, '이동하는 중…', () async {
+    await runBusy(context, tr('이동하는 중…'), () async {
       for (final path in paths) {
         final ext = isBinderPath(path) ? binderExt : '.pdf';
         await moveDocument(path, uniquePath(folder, p.basenameWithoutExtension(path), ext));

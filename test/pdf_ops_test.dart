@@ -6,6 +6,7 @@ import 'package:path/path.dart' as p;
 import 'package:pdf/pdf.dart' as pw_pdf;
 import 'package:pdf/widgets.dart' as pw;
 import 'package:pdf_desk/models/annotation.dart';
+import 'package:pdf_desk/services/fonts.dart';
 import 'package:pdf_desk/services/pdf_ops.dart' as ops;
 import 'package:pdf_desk/services/storage.dart';
 import 'package:pdfrx/pdfrx.dart';
@@ -101,6 +102,16 @@ void main() {
     await ops.stackOnto(a, [b]);
     expect(await pageTexts(a), ['S1', 'T1', 'T2']);
     expect(File(b).existsSync(), isFalse);
+    expect((await loadAnnotations(a)).single.page, 2);
+
+    // Undo restores both documents exactly.
+    final c = await makePdf(dir.path, 'U', ['U1']);
+    final undo = await ops.StackUndo.capture(dir.path, [a, c]);
+    await ops.stackOnto(a, [c]);
+    expect(await pageTexts(a), ['S1', 'T1', 'T2', 'U1']);
+    await undo.restore();
+    expect(await pageTexts(a), ['S1', 'T1', 'T2']);
+    expect(await pageTexts(c), ['U1']);
     expect((await loadAnnotations(a)).single.page, 2);
 
     final sheets = await ops.spreadPages(a, dir.path);
@@ -207,6 +218,76 @@ void main() {
     },
     skip: _koreanFontAvailable ? null : 'needs a Korean .ttf (set PDFDESK_FONT)',
   );
+
+  test('styled shapes and fonts round-trip and export', () async {
+    final a = await makePdf(tmp.path, 'S', ['Styles']);
+    final notes = [
+      Annotation(
+        type: AnnotationType.rect,
+        page: 0,
+        points: [const Offset(40, 40), const Offset(200, 120)],
+        fill: const Color(0x8064B5F6),
+        lineStyle: LineStyle.dashed,
+      ),
+      Annotation(
+        type: AnnotationType.ellipse,
+        page: 0,
+        points: [const Offset(220, 40), const Offset(320, 120)],
+        fill: const Color(0xFFFFF59D),
+        strokeWidth: 0,
+      ),
+      Annotation(
+        type: AnnotationType.line,
+        page: 0,
+        points: [const Offset(40, 200), const Offset(300, 200)],
+        lineStyle: LineStyle.dashDot,
+        heads: 3,
+      ),
+      Annotation(
+        type: AnnotationType.text,
+        page: 0,
+        points: [const Offset(40, 300), const Offset(300, 330)],
+        text: 'STYLED TEXT',
+        fontFamily: 'Times New Roman',
+        bold: true,
+        italic: true,
+      ),
+    ];
+    final back = [for (final n in notes) Annotation.fromJson(n.toJson())];
+    expect(back[0].lineStyle, LineStyle.dashed);
+    expect(back[0].fill!.toARGB32(), 0x8064B5F6);
+    expect(back[1].strokeWidth, 0);
+    expect((back[2].startHead, back[2].endHead), (true, true));
+    expect((back[3].fontFamily, back[3].bold, back[3].italic), ('Times New Roman', true, true));
+    expect(Annotation(type: AnnotationType.arrow, page: 0, points: []).endHead, isTrue);
+
+    await saveAnnotations(a, notes);
+    final out = p.join(tmp.path, 'sflat.pdf');
+    await File(out).writeAsBytes(await ops.exportFlattened([a]));
+    expect((await pageTexts(out)).join(' '), contains('STYLED TEXT'));
+  });
+
+  test('blank documents have the chosen paper', () async {
+    final a4 = ops.paperSizes['A4']!;
+    final out = await ops.createBlank(tmp.path, '새 문서', Size(a4.height, a4.width), pages: 3);
+    expect(p.basename(out), '새 문서.pdf');
+    final d = await ops.openPdfInMemory(out);
+    expect(d.pages.length, 3);
+    expect(d.pages[0].width, closeTo(841.89, 0.5));
+    expect(d.pages[0].height, closeTo(595.28, 0.5));
+    await d.dispose();
+    expect(p.basename(await ops.createBlank(tmp.path, '새 문서', a4)), '새 문서 (2).pdf');
+  });
+
+  test('a face is extracted from a font collection', () async {
+    final ttc = File('/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc');
+    if (!ttc.existsSync()) return markTestSkipped('no .ttc font here');
+    final data = await ttc.readAsBytes();
+    final face = extractTtcFace(data, 0)!;
+    expect(String.fromCharCodes(face.sublist(0, 4)), 'OTTO');
+    expect(face.length, lessThan(data.length));
+    expect(extractTtcFace(data, 99), isNull);
+  });
 
   test('image import and binders', () async {
     final pngPath = p.join(tmp.path, 'img.png');

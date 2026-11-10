@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
+import '../l10n/l10n.dart';
 
 /// The "PDF Desk" printer: Windows' built-in "Microsoft Print To PDF" driver
 /// on a local port that is a file path, so printing writes a PDF straight
@@ -21,6 +22,38 @@ class VirtualPrinter {
       "if (Get-Printer -Name '${_q(printerName)}' -ErrorAction SilentlyContinue) { exit 0 } else { exit 1 }",
     ]);
     return r.exitCode == 0;
+  }
+
+  static Future<bool> isDefault() async {
+    if (!supported) return false;
+    final r = await Process.run('powershell', [
+      '-NoProfile',
+      '-Command',
+      "if ((Get-CimInstance Win32_Printer -Filter 'Default=TRUE').Name -eq '${_q(printerName)}') { exit 0 } else { exit 1 }",
+    ]);
+    return r.exitCode == 0;
+  }
+
+  /// Makes the printer the user's default, so Ctrl+P in any program prints
+  /// onto the desk. Runs as the user (the default printer is per user) and
+  /// stops Windows from switching it back to the last used printer.
+  static Future<String?> setDefault() async {
+    if (!supported) return tr('Windows에서만 사용할 수 있습니다.');
+    final r = await Process.run('powershell', [
+      '-NoProfile',
+      '-Command',
+      [
+        r"$ErrorActionPreference = 'Stop'",
+        r"Set-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows NT\CurrentVersion\Windows' "
+            r'-Name LegacyDefaultPrinterMode -Value 1 -Type DWord',
+        "\$p = Get-CimInstance Win32_Printer | Where-Object Name -eq '${_q(printerName)}'",
+        r'$r = Invoke-CimMethod -InputObject $p -MethodName SetDefaultPrinter',
+        r'exit $r.ReturnValue',
+      ].join('; '),
+    ]);
+    if (r.exitCode == 0) return null;
+    final err = '${r.stderr}'.trim();
+    return err.isEmpty ? tr('기본 프린터로 지정하지 못했습니다.') : err;
   }
 
   /// Adds the printer writing to [outputFile]. Asks for administrator rights
@@ -57,7 +90,7 @@ if (Get-PrinterPort -Name \$port -ErrorAction SilentlyContinue) {
   static String _q(String s) => s.replaceAll("'", "''");
 
   static Future<String?> _runElevated(String body) async {
-    if (!supported) return 'Windows에서만 사용할 수 있습니다.';
+    if (!supported) return tr('Windows에서만 사용할 수 있습니다.');
     final dir = await Directory.systemTemp.createTemp('pdfdesk_printer');
     try {
       final script = File(p.join(dir.path, 'setup.ps1'));
@@ -89,9 +122,9 @@ $body
       if (r.exitCode == 0) return null;
       final detail = File(log).existsSync() ? File(log).readAsStringSync().trim() : '';
       if (detail.contains('NO_DRIVER') || r.exitCode == 2) {
-        return "'Microsoft Print to PDF'가 꺼져 있습니다. Windows 기능 켜기/끄기에서 켜 주세요.";
+        return tr("'Microsoft Print to PDF'가 꺼져 있습니다. Windows 기능 켜기/끄기에서 켜 주세요.");
       }
-      if (detail.isEmpty) return '관리자 권한이 필요합니다. (취소되었거나 실행하지 못했습니다)';
+      if (detail.isEmpty) return tr('관리자 권한이 필요합니다. (취소되었거나 실행하지 못했습니다)');
       return detail;
     } finally {
       await dir.delete(recursive: true);

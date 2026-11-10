@@ -30,7 +30,7 @@ class ThumbnailService {
 
   static const _maxEntries = 300;
   static const _maxConcurrent = 2;
-  static const renderWidth = 320;
+  static const renderWidth = 400;
 
   final _cache = <String, Thumbnail>{};
   final _pending = <String, Future<Thumbnail?>>{};
@@ -39,6 +39,12 @@ class ThumbnailService {
 
   /// Bumped whenever a document changes so widgets reload.
   final revision = ValueNotifier(0);
+
+  /// First-page size and page count of the last thumbnail of each path, so
+  /// the desk knows how big each sheet is drawn without waiting for a render.
+  final _known = <String, (ui.Size, int)>{};
+
+  (ui.Size, int)? knownPageOf(String path) => _known[path];
 
   Future<String> _key(String path) async {
     if (isBinderPath(path)) {
@@ -53,6 +59,12 @@ class ThumbnailService {
   }
 
   Future<Thumbnail?> get(String path) async {
+    final t = await _get(path);
+    if (t != null) _known[path] = (t.pageSize, t.pageCount);
+    return t;
+  }
+
+  Future<Thumbnail?> _get(String path) async {
     final key = await _key(path);
     final hit = _cache.remove(key);
     if (hit != null) {

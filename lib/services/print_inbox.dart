@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 import 'package:path/path.dart' as p;
 
 import 'storage.dart';
+import '../l10n/l10n.dart';
 
 /// Picks up PDFs that the "PDF Desk" printer writes into [inboxDir] and moves
 /// them onto the desk.
@@ -66,7 +67,7 @@ class PrintInbox {
     final out = <String>[];
     for (final f in candidates) {
       if (!await _isComplete(f, settle)) continue;
-      final name = '인쇄_${DateFormat('yyyy-MM-dd_HHmmss').format(DateTime.now())}';
+      final name = tr('인쇄_{now}', {'now': DateFormat('yyyy-MM-dd_HHmmss').format(DateTime.now())});
       final target = uniquePath(folder, name, '.pdf');
       try {
         // Fails while the spooler still holds the file open; retried next poll.

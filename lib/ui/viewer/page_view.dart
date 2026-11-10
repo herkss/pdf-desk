@@ -10,7 +10,9 @@ import '../../models/annotation.dart';
 import '../../services/settings.dart';
 import '../common/annotation_painter.dart';
 import '../common/dialogs.dart';
+import 'annotation_style.dart';
 import 'viewer_controller.dart';
+import '../../l10n/l10n.dart';
 
 /// One PDF page with its annotation layer. Handles drawing and editing input
 /// for the current tool; coordinates are converted to page points.
@@ -85,17 +87,15 @@ class _AnnotatedPageState extends State<AnnotatedPage> {
       case Tool.arrow:
       case Tool.rect:
       case Tool.ellipse:
-        _draft = Annotation(
-          type: switch (c.tool) {
+        _draft = c.newShape(
+          switch (c.tool) {
             Tool.line => AnnotationType.line,
             Tool.arrow => AnnotationType.arrow,
             Tool.rect => AnnotationType.rect,
             _ => AnnotationType.ellipse,
           },
-          page: page,
-          points: [p, p],
-          color: c.color,
-          strokeWidth: c.strokeWidth,
+          page,
+          p,
         );
         _drag = _Drag.draw;
       case Tool.text:
@@ -247,23 +247,13 @@ class _AnnotatedPageState extends State<AnnotatedPage> {
   }
 
   Future<void> _createText(Offset p) async {
-    final text = await promptText(context, title: '텍스트 주석', maxLines: 5);
+    final text = await promptText(context, title: tr('텍스트 주석'), maxLines: 5);
     if (text == null || text.trim().isEmpty) return;
-    final size = measureText(text, c.fontSize);
-    c.add(
-      Annotation(
-        type: AnnotationType.text,
-        page: page,
-        points: [p, p + Offset(size.width, size.height)],
-        color: c.color,
-        text: text,
-        fontSize: c.fontSize,
-      ),
-    );
+    c.add(c.newText(page, p, text));
   }
 
   Future<void> _createSticky(Offset p) async {
-    final text = await promptText(context, title: '부전 (스티커 메모)', maxLines: 5);
+    final text = await promptText(context, title: tr('부전 (스티커 메모)'), maxLines: 5);
     if (text == null) return;
     c.add(c.newSticky(page, p, text));
   }
@@ -286,15 +276,15 @@ class _AnnotatedPageState extends State<AnnotatedPage> {
   Future<void> _editText(Annotation a) async {
     final String? text;
     if (a.type == AnnotationType.stamp) {
-      text = await promptText(context, title: '도장 편집 (윗줄/날짜/이름)', initial: a.text, maxLines: 3);
+      text = await promptText(context, title: tr('도장 편집 (윗줄/날짜/이름)'), initial: a.text, maxLines: 3);
     } else {
-      text = await promptText(context, title: '텍스트 편집', initial: a.text, maxLines: 5);
+      text = await promptText(context, title: tr('텍스트 편집'), initial: a.text, maxLines: 5);
     }
     if (text == null) return;
     c.checkpoint();
     a.text = text;
     if (a.type == AnnotationType.text) {
-      final size = measureText(text, a.fontSize);
+      final size = measureText(a);
       a.points = [a.points.first, a.points.first + Offset(size.width, size.height)];
     }
     c.changed();
@@ -308,21 +298,34 @@ class _AnnotatedPageState extends State<AnnotatedPage> {
       context: context,
       position: RelativeRect.fromLTRB(global.dx, global.dy, global.dx, global.dy),
       items: [
-        if (hit != null && hit.isBoxed) const PopupMenuItem(value: 'edit', child: Text('텍스트 편집')),
-        if (hasSel) ...const [
-          PopupMenuItem(value: 'copy', child: Text('복사')),
-          PopupMenuItem(value: 'front', child: Text('맨 앞으로')),
-          PopupMenuItem(value: 'back', child: Text('맨 뒤로')),
+        if (hasSel)
+          PopupMenuItem(
+            value: 'style',
+            child: ListTile(
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+              leading: Icon(Icons.palette_outlined, size: 18),
+              title: Text(tr('속성 (색·선·배경·글꼴)…')),
+            ),
+          ),
+        if (hit != null && hit.isBoxed) PopupMenuItem(value: 'edit', child: Text(tr('텍스트 편집'))),
+        if (hasSel) ...[
+          PopupMenuItem(value: 'copy', child: Text(tr('복사'))),
+          PopupMenuItem(value: 'front', child: Text(tr('맨 앞으로'))),
+          PopupMenuItem(value: 'back', child: Text(tr('맨 뒤로'))),
           PopupMenuItem(
             value: 'delete',
-            child: Text('삭제', style: TextStyle(color: Colors.red)),
+            child: Text(tr('삭제'), style: TextStyle(color: Colors.red)),
           ),
         ],
-        const PopupMenuItem(value: 'paste', child: Text('붙여넣기')),
-        const PopupMenuItem(value: 'selectAll', child: Text('이 페이지의 주석 모두 선택')),
+        PopupMenuItem(value: 'paste', child: Text(tr('붙여넣기'))),
+        PopupMenuItem(value: 'selectAll', child: Text(tr('이 페이지의 주석 모두 선택'))),
       ],
     );
+    if (!mounted) return;
     switch (choice) {
+      case 'style':
+        await showAnnotationStyleDialog(context, c);
       case 'edit':
         await _editText(hit!);
       case 'copy':

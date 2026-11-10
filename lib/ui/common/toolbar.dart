@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'ios_theme.dart';
+
 /// Horizontal toolbar that scrolls when the window is too narrow.
 class ToolbarRow extends StatelessWidget {
   const ToolbarRow({super.key, required this.items, this.trailing = const []});
@@ -12,7 +14,10 @@ class ToolbarRow extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       height: 62,
-      color: const Color(0xFFFAFBFC),
+      decoration: const BoxDecoration(
+        color: IosColors.bar,
+        border: Border(bottom: iosHairline),
+      ),
       padding: const EdgeInsets.symmetric(horizontal: 6),
       child: Row(
         children: [
@@ -34,7 +39,7 @@ class ToolSeparator extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) =>
-      const VerticalDivider(width: 14, indent: 10, endIndent: 10, color: Color(0xFFD5D9DE));
+      const VerticalDivider(width: 14, indent: 14, endIndent: 14, thickness: 0.5, color: IosColors.separator);
 }
 
 /// Icon-over-label button, like classic document-management toolbars.
@@ -58,7 +63,7 @@ class ToolButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final button = InkWell(
       onTap: onPressed,
-      borderRadius: BorderRadius.circular(6),
+      borderRadius: BorderRadius.circular(9),
       child: ToolButtonFace(icon: icon, label: label, enabled: onPressed != null, active: active),
     );
     return tooltip == null ? button : Tooltip(message: tooltip, child: button);
@@ -76,22 +81,19 @@ class ToolButtonFace extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final color = !enabled
-        ? Colors.black26
-        : active
-        ? scheme.primary
-        : Colors.black87;
+    // iOS bar buttons: tinted icons, gray when disabled.
+    final color = !enabled ? const Color(0x4D3C3C43) : scheme.primary;
     return Container(
       constraints: const BoxConstraints(minWidth: 54),
       margin: const EdgeInsets.symmetric(vertical: 5, horizontal: 1),
       padding: const EdgeInsets.symmetric(horizontal: 6),
-      decoration: BoxDecoration(color: active ? scheme.primaryContainer : null, borderRadius: BorderRadius.circular(6)),
+      decoration: BoxDecoration(color: active ? scheme.primaryContainer : null, borderRadius: BorderRadius.circular(9)),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Icon(icon, size: 22, color: color),
           const SizedBox(height: 2),
-          Text(label, style: TextStyle(fontSize: 11, color: color)),
+          Text(label, style: TextStyle(fontSize: 10.5, color: enabled ? Colors.black87 : color, letterSpacing: -0.1)),
         ],
       ),
     );

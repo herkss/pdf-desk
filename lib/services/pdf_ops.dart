@@ -5,12 +5,15 @@ import 'dart:ui';
 
 import 'package:image/image.dart' as img;
 import 'package:path/path.dart' as p;
+import 'package:pdf/pdf.dart' show PdfPageFormat;
+import 'package:pdf/widgets.dart' as pw;
 import 'package:pdfrx/pdfrx.dart';
 import 'package:uuid/uuid.dart';
 
 import '../models/annotation.dart';
 import 'flatten.dart';
 import 'storage.dart';
+import '../l10n/l10n.dart';
 
 const _uuid = Uuid();
 
@@ -131,7 +134,7 @@ Future<void> rotatePages(String path, Set<int> pages, int quarterTurns) async {
 
 Future<void> deletePages(String path, Set<int> pages) async {
   final n = await pageCountOf(path);
-  if (pages.length >= n) throw StateError('모든 페이지를 삭제할 수는 없습니다.');
+  if (pages.length >= n) throw StateError(tr('모든 페이지를 삭제할 수는 없습니다.'));
   await assembleTo([
     for (var i = 0; i < n; i++)
       if (!pages.contains(i)) PageRef(path, i),
@@ -150,7 +153,7 @@ Future<void> insertDocument(String path, String other, int at) async {
 
 /// Copies [pages] of [path] into a new document in [folder]; returns its path.
 Future<String> extractPages(String path, List<int> pages, String folder) async {
-  final base = '${p.basenameWithoutExtension(path)}_발췌';
+  final base = tr('{path}_발췌', {'path': p.basenameWithoutExtension(path)});
   final out = uniquePath(folder, base, '.pdf');
   await assembleTo([for (final i in pages) PageRef(path, i)], out);
   return out;
@@ -176,6 +179,52 @@ Future<void> stackOnto(String target, List<String> sources) async {
   await assembleTo([...await allPages(target), for (final s in others) ...await pagesOfEntry(s)], target);
   for (final s in others) {
     await deleteDocument(s);
+  }
+}
+
+/// A copy of the documents involved in a 겹치기, so it can be undone. Only
+/// the most recent one is kept, in the folder's hidden metadata directory
+/// (same drive, so restoring is a rename).
+class StackUndo {
+  StackUndo._(this._dir, this._items);
+  final Directory _dir;
+
+  /// (original path, backup path)
+  final List<(String, String)> _items;
+
+  List<String> get paths => [for (final (o, _) in _items) o];
+
+  static StackUndo? _latest;
+
+  /// Only the latest 겹치기 can be undone; a newer one replaces its backup.
+  bool get canRestore => identical(_latest, this) && _dir.existsSync();
+
+  static Future<StackUndo> capture(String folder, List<String> paths) async {
+    final root = Directory(p.join(metaDirOf(folder), 'undo'));
+    if (await root.exists()) await root.delete(recursive: true);
+    final dir = await Directory(p.join(root.path, _uuid.v4())).create(recursive: true);
+    final items = <(String, String)>[];
+    for (final (i, path) in paths.indexed) {
+      final backup = p.join(dir.path, '$i${p.extension(path)}');
+      await copyEntry(path, backup);
+      items.add((path, backup));
+    }
+    return _latest = StackUndo._(dir, items);
+  }
+
+  /// Puts every document back the way it was before the 겹치기.
+  Future<void> restore() async {
+    if (!canRestore) throw StateError(tr('이미 다른 작업을 해서 되돌릴 수 없습니다.'));
+    _latest = null;
+    for (final (original, backup) in _items) {
+      if (await File(original).exists() || await Directory(original).exists()) await deleteDocument(original);
+      await moveDocument(backup, original);
+    }
+    await discard();
+  }
+
+  Future<void> discard() async {
+    if (await _dir.exists()) await _dir.delete(recursive: true);
   }
 }
 
@@ -218,7 +267,7 @@ Future<String?> importFile(String source, String folder) async {
 /// Wraps an image in a single-page PDF sized to fit A4 (portrait or landscape).
 Future<Uint8List> imageToPdf(Uint8List data, String name) async {
   final decoded = img.decodeImage(data);
-  if (decoded == null) throw FormatException('이미지를 읽을 수 없습니다: $name');
+  if (decoded == null) throw FormatException(tr('이미지를 읽을 수 없습니다: {name}', {'name': name}));
   final isJpeg = data.length > 2 && data[0] == 0xFF && data[1] == 0xD8;
   final jpeg = isJpeg ? data : img.encodeJpg(decoded, quality: 92);
   final landscape = decoded.width > decoded.height;
@@ -235,6 +284,28 @@ Future<Uint8List> imageToPdf(Uint8List data, String name) async {
   } finally {
     await doc.dispose();
   }
+}
+
+/// Paper sizes for new blank documents, portrait, in points.
+const paperSizes = {
+  'A3': Size(841.89, 1190.55),
+  'A4': Size(595.28, 841.89),
+  'A5': Size(419.53, 595.28),
+  'B4': Size(728.5, 1031.81), // JIS B4, 257 × 364 mm
+  'B5': Size(515.91, 728.5), // JIS B5, 182 × 257 mm
+  'Letter': Size(612, 792),
+  'Legal': Size(612, 1008),
+};
+
+/// Creates a blank document of [pages] pages of [size] points in [folder].
+Future<String> createBlank(String folder, String name, Size size, {int pages = 1}) async {
+  final doc = pw.Document();
+  for (var i = 0; i < pages; i++) {
+    doc.addPage(pw.Page(pageFormat: PdfPageFormat(size.width, size.height), build: (_) => pw.SizedBox()));
+  }
+  final out = uniquePath(folder, sanitizeFileName(name), '.pdf');
+  await writeBytesAtomic(out, await doc.save());
+  return out;
 }
 
 // ---------------------------------------------------------------------------

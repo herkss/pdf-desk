@@ -8,6 +8,8 @@ import 'package:flutter/services.dart';
 import '../../services/desk_controller.dart';
 import 'desk_actions.dart';
 import 'desk_item.dart';
+import '../common/ios_theme.dart';
+import '../../l10n/l10n.dart';
 
 /// Payload of an internal drag: the grabbed item first, then the rest of the
 /// selection.
@@ -52,6 +54,23 @@ class _DeskCanvasState extends State<DeskCanvas> {
     return box.globalToLocal(global);
   }
 
+  /// Scales the desk by [factor] around [at] (desk coordinates), keeping the
+  /// spot under the mouse in place.
+  void _zoomAt(Offset at, double factor) {
+    final old = desk.thumbWidth;
+    final w = (old * factor).clamp(DeskController.minThumbWidth, DeskController.maxThumbWidth);
+    if (w == old) return;
+    final ratio = w / old;
+    final shift = at * (ratio - 1);
+    desk.setThumbWidth(w);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      for (final (c, d) in [(_hScroll, shift.dx), (_vScroll, shift.dy)]) {
+        if (!c.hasClients) continue;
+        c.jumpTo((c.offset + d).clamp(0.0, c.position.maxScrollExtent));
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return DropTarget(
@@ -80,17 +99,9 @@ class _DeskCanvasState extends State<DeskCanvas> {
         onPointerCancel: (_) {
           if (_panning) setState(() => _panning = false);
         },
-        onPointerSignal: (e) {
-          if (e is PointerScrollEvent && _ctrl) {
-            GestureBinding.instance.pointerSignalResolver.register(e, (_) {
-              final w = (desk.thumbWidth * (e.scrollDelta.dy > 0 ? 0.9 : 1.1)).clamp(70.0, 400.0);
-              desk.setThumbWidth(w);
-            });
-          }
-        },
         child: Container(
           decoration: BoxDecoration(
-            color: const Color(0xFFDDE3EA),
+            color: IosColors.desk,
             border: _osDragOver ? Border.all(color: Theme.of(context).colorScheme.primary, width: 3) : null,
           ),
           child: MouseRegion(
@@ -127,38 +138,55 @@ class _DeskCanvasState extends State<DeskCanvas> {
                 final grabbed = desk.entries.where((e) => e.path == d.data.paths.first).firstOrNull;
                 if (grabbed == null) return;
                 final delta = _toContent(d.offset) - desk.positionOf(grabbed);
+                // Ctrl + drag leaves the originals and lays down copies.
+                if (_ctrl) {
+                  widget.actions(context).copyDragged(d.data.paths, delta);
+                  return;
+                }
                 desk.movePathsBy(d.data.paths, delta);
                 desk.bringToFront(d.data.paths.reversed.toList());
                 desk.endMove();
               },
-              builder: (context, _, _) => SizedBox(
-                key: _contentKey,
-                width: w,
-                height: h,
-                child: Stack(
-                  children: [
-                    Positioned.fill(child: _background(context)),
-                    for (final e in entries)
-                      Positioned(
-                        left: desk.positionOf(e).dx,
-                        top: desk.positionOf(e).dy,
-                        child: _DeskItem(key: ValueKey(e.path), entry: e, desk: desk, actions: widget.actions),
-                      ),
-                    if (_band == null) ?_selectionBar(context, entries),
-                    if (_band != null)
-                      Positioned.fromRect(
-                        rect: _band!,
-                        child: IgnorePointer(
-                          child: Container(
-                            decoration: BoxDecoration(
-                              color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.12),
-                              border: Border.all(color: Theme.of(context).colorScheme.primary),
+              // Ctrl + wheel zooms the desk. The listener sits inside the
+              // scroll views so it gets the wheel before they scroll.
+              builder: (context, _, _) => Listener(
+                onPointerSignal: (e) {
+                  if (e is PointerScrollEvent && _ctrl && e.scrollDelta.dy != 0) {
+                    GestureBinding.instance.pointerSignalResolver.register(
+                      e,
+                      (_) => _zoomAt(e.localPosition, math.pow(0.9, e.scrollDelta.dy / 100).toDouble()),
+                    );
+                  }
+                },
+                child: SizedBox(
+                  key: _contentKey,
+                  width: w,
+                  height: h,
+                  child: Stack(
+                    children: [
+                      Positioned.fill(child: _background(context)),
+                      for (final e in entries)
+                        Positioned(
+                          left: desk.positionOf(e).dx,
+                          top: desk.positionOf(e).dy,
+                          child: _DeskItem(key: ValueKey(e.path), entry: e, desk: desk, actions: widget.actions),
+                        ),
+                      if (_band == null) ?_selectionBar(context, entries),
+                      if (_band != null)
+                        Positioned.fromRect(
+                          rect: _band!,
+                          child: IgnorePointer(
+                            child: Container(
+                              decoration: BoxDecoration(
+                                color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.12),
+                                border: Border.all(color: Theme.of(context).colorScheme.primary),
+                              ),
                             ),
                           ),
                         ),
-                      ),
-                    if (entries.isEmpty) _emptyHint(context),
-                  ],
+                      if (entries.isEmpty) _emptyHint(context),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -173,7 +201,7 @@ class _DeskCanvasState extends State<DeskCanvas> {
   Widget? _selectionBar(BuildContext context, List<DeskEntry> entries) {
     final sel = entries.where(desk.isSelected).toList();
     if (sel.length < 2) return null;
-    final bounds = sel.map(desk.rectOf).reduce((a, b) => a.expandToInclude(b));
+    final bounds = sel.map(desk.sheetRectOf).reduce((a, b) => a.expandToInclude(b));
     const barH = 38.0;
     final top = bounds.top >= barH + 6 ? bounds.top - barH - 6 : bounds.bottom + 6;
     final a = widget.actions(context);
@@ -201,13 +229,16 @@ class _DeskCanvasState extends State<DeskCanvas> {
             children: [
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 6),
-                child: Text('${sel.length}개 선택', style: const TextStyle(fontSize: 12, color: Colors.black54)),
+                child: Text(
+                  tr('{n}개 선택', {'n': sel.length}),
+                  style: const TextStyle(fontSize: 12, color: Colors.black54),
+                ),
               ),
-              button(Icons.layers_outlined, '겹치기', '선택한 순서대로 하나의 문서로 합칩니다', a.stackSelection),
-              button(Icons.view_carousel_outlined, '펼치기', '각 문서를 낱장으로 펼칩니다', () => a.spread()),
-              button(Icons.collections_bookmark_outlined, '바인더', '바인더로 묶습니다', () => a.makeBinder()),
+              button(Icons.layers_outlined, tr('겹치기'), tr('선택한 순서대로 하나의 문서로 합칩니다'), a.stackSelection),
+              button(Icons.view_carousel_outlined, tr('펼치기'), tr('각 문서를 낱장으로 펼칩니다'), () => a.spread()),
+              button(Icons.collections_bookmark_outlined, tr('바인더'), tr('바인더로 묶습니다'), () => a.makeBinder()),
               IconButton(
-                tooltip: '선택 해제',
+                tooltip: tr('선택 해제'),
                 iconSize: 16,
                 visualDensity: VisualDensity.compact,
                 onPressed: desk.clearSelection,
@@ -229,7 +260,9 @@ class _DeskCanvasState extends State<DeskCanvas> {
             Icon(Icons.file_download_outlined, size: 56, color: Colors.black.withValues(alpha: 0.25)),
             const SizedBox(height: 8),
             Text(
-              desk.filter.isEmpty ? 'PDF나 이미지 파일을 여기로 끌어다 놓으세요' : "'${desk.filter}'에 해당하는 문서가 없습니다",
+              desk.filter.isEmpty
+                  ? tr('PDF나 이미지 파일을 여기로 끌어다 놓으세요')
+                  : tr("'{filter}'에 해당하는 문서가 없습니다", {'filter': desk.filter}),
               style: TextStyle(color: Colors.black.withValues(alpha: 0.45), fontSize: 15),
             ),
           ],
@@ -265,18 +298,21 @@ class _DeskCanvasState extends State<DeskCanvas> {
     final choice = await showMenu<String>(
       context: context,
       position: RelativeRect.fromLTRB(global.dx, global.dy, global.dx, global.dy),
-      items: const [
-        PopupMenuItem(value: 'import', child: Text('파일 가져오기…')),
+      items: [
+        PopupMenuItem(value: 'new', child: Text(tr('새 문서 작성…'))),
+        PopupMenuItem(value: 'import', child: Text(tr('파일 가져오기…'))),
         PopupMenuDivider(),
-        PopupMenuItem(value: 'arrangeName', child: Text('이름순으로 정렬')),
-        PopupMenuItem(value: 'arrangeDate', child: Text('수정일순으로 정렬')),
-        PopupMenuItem(value: 'selectAll', child: Text('모두 선택')),
+        PopupMenuItem(value: 'arrangeName', child: Text(tr('이름순으로 정렬'))),
+        PopupMenuItem(value: 'arrangeDate', child: Text(tr('수정일순으로 정렬'))),
+        PopupMenuItem(value: 'selectAll', child: Text(tr('모두 선택'))),
         PopupMenuDivider(),
-        PopupMenuItem(value: 'refresh', child: Text('새로 고침')),
-        PopupMenuItem(value: 'explorer', child: Text('탐색기에서 열기')),
+        PopupMenuItem(value: 'refresh', child: Text(tr('새로 고침'))),
+        PopupMenuItem(value: 'explorer', child: Text(tr('탐색기에서 열기'))),
       ],
     );
     switch (choice) {
+      case 'new':
+        await a.newDocument(local);
       case 'import':
         await a.importFiles(null, local);
       case 'arrangeName':
@@ -306,6 +342,13 @@ class _DeskItem extends StatefulWidget {
 
 class _DeskItemState extends State<_DeskItem> {
   DateTime _lastDown = DateTime(0);
+  bool _pendingDeselect = false;
+
+  void _onPointerUp(PointerUpEvent e) {
+    if (!_pendingDeselect) return;
+    _pendingDeselect = false;
+    desk.select(entry, toggle: true);
+  }
 
   DeskEntry get entry => widget.entry;
   DeskController get desk => widget.desk;
@@ -320,7 +363,10 @@ class _DeskItemState extends State<_DeskItem> {
     final now = DateTime.now();
     final ctrl = HardwareKeyboard.instance.isControlPressed || HardwareKeyboard.instance.isMetaPressed;
     final shift = HardwareKeyboard.instance.isShiftPressed;
-    desk.select(entry, toggle: ctrl || shift);
+    // Ctrl/Shift-clicking a selected sheet deselects it on release, unless it
+    // is dragged: Ctrl + drag copies the whole selection.
+    _pendingDeselect = (ctrl || shift) && desk.isSelected(entry);
+    if (!_pendingDeselect) desk.select(entry, toggle: ctrl || shift);
     // Clicking a sheet lifts it (and the rest of the selection) to the top.
     if (desk.isSelected(entry)) desk.bringToFront([...desk.selection.where((s) => s != entry.path), entry.path]);
     if (now.difference(_lastDown) < const Duration(milliseconds: 400) && !ctrl && !shift) {
@@ -339,28 +385,31 @@ class _DeskItemState extends State<_DeskItem> {
       context: context,
       position: RelativeRect.fromLTRB(global.dx, global.dy, global.dx, global.dy),
       items: [
-        const PopupMenuItem(value: 'open', child: Text('열기')),
+        PopupMenuItem(value: 'open', child: Text(tr('열기'))),
         const PopupMenuDivider(),
-        if (multi) const PopupMenuItem(value: 'stack', child: Text('겹치기 (첫 문서 뒤에 붙이기)')),
-        if (multi) const PopupMenuItem(value: 'combine', child: Text('새 문서로 묶기…')),
-        PopupMenuItem(value: 'spread', child: Text(multi ? '모두 낱장으로 펼치기' : (binder ? '풀어서 펼치기' : '낱장으로 펼치기'))),
-        if (!multi && !binder) const PopupMenuItem(value: 'split', child: Text('페이지별로 분할 (원본 유지)…')),
-        const PopupMenuItem(value: 'binder', child: Text('바인더 만들기')),
-        if (!multi && binder) const PopupMenuItem(value: 'unbind', child: Text('바인더 해제')),
-        if (!binder) ...const [
-          PopupMenuItem(value: 'rotR', child: Text('오른쪽으로 회전')),
-          PopupMenuItem(value: 'rotL', child: Text('왼쪽으로 회전')),
+        if (multi) PopupMenuItem(value: 'stack', child: Text(tr('겹치기 (첫 문서 뒤에 붙이기)'))),
+        if (multi) PopupMenuItem(value: 'combine', child: Text(tr('새 문서로 묶기…'))),
+        PopupMenuItem(
+          value: 'spread',
+          child: Text(multi ? tr('모두 낱장으로 펼치기') : (binder ? tr('풀어서 펼치기') : tr('낱장으로 펼치기'))),
+        ),
+        if (!multi && !binder) PopupMenuItem(value: 'split', child: Text(tr('페이지별로 분할 (원본 유지)…'))),
+        PopupMenuItem(value: 'binder', child: Text(tr('바인더 만들기'))),
+        if (!multi && binder) PopupMenuItem(value: 'unbind', child: Text(tr('바인더 해제'))),
+        if (!binder) ...[
+          PopupMenuItem(value: 'rotR', child: Text(tr('오른쪽으로 회전'))),
+          PopupMenuItem(value: 'rotL', child: Text(tr('왼쪽으로 회전'))),
         ],
         const PopupMenuDivider(),
-        const PopupMenuItem(value: 'export', child: Text('PDF로 내보내기 (주석 포함)…')),
-        const PopupMenuItem(value: 'print', child: Text('인쇄…')),
+        PopupMenuItem(value: 'export', child: Text(tr('PDF로 내보내기 (주석 포함)…'))),
+        PopupMenuItem(value: 'print', child: Text(tr('인쇄…'))),
         const PopupMenuDivider(),
-        if (!multi) const PopupMenuItem(value: 'rename', child: Text('이름 바꾸기')),
-        const PopupMenuItem(value: 'duplicate', child: Text('복제')),
-        if (!multi) const PopupMenuItem(value: 'reveal', child: Text('탐색기에서 보기')),
-        const PopupMenuItem(
+        if (!multi) PopupMenuItem(value: 'rename', child: Text(tr('이름 바꾸기'))),
+        PopupMenuItem(value: 'duplicate', child: Text(tr('복제'))),
+        if (!multi) PopupMenuItem(value: 'reveal', child: Text(tr('탐색기에서 보기'))),
+        PopupMenuItem(
           value: 'delete',
-          child: Text('삭제', style: TextStyle(color: Colors.red)),
+          child: Text(tr('삭제'), style: TextStyle(color: Colors.red)),
         ),
       ],
     );
@@ -398,43 +447,29 @@ class _DeskItemState extends State<_DeskItem> {
     }
   }
 
-  /// Dropping documents onto a binder adds them; onto a document offers to
-  /// stack them on it (겹치기), make a binder, or just lay them on top.
+  /// Dropping documents onto a document stacks them on it right away (겹치기),
+  /// so sheets can be gathered one after another; onto a binder adds them.
+  /// Holding Shift just lays them on top without combining; Ctrl lays copies
+  /// there instead.
   Future<void> _onDropOnto(DragTargetDetails<DeskDragData> d) async {
-    final a = widget.actions(context);
     final paths = d.data.paths;
-    if (entry.isBinder) {
-      await a.addToBinder(entry, paths);
+    final keys = HardwareKeyboard.instance;
+    final copy = keys.isControlPressed || keys.isMetaPressed;
+    if (copy || keys.isShiftPressed) {
+      final grabbed = desk.entries.where((e) => e.path == paths.first).firstOrNull;
+      if (grabbed == null) return;
+      final origin = (context.findRenderObject() as RenderBox).localToGlobal(Offset.zero);
+      final target = desk.positionOf(entry) + (d.offset - origin);
+      if (copy) {
+        await widget.actions(context).copyDragged(paths, target - desk.positionOf(grabbed));
+        return;
+      }
+      desk.movePathsBy(paths, target - desk.positionOf(grabbed));
+      desk.bringToFront(paths.reversed.toList());
+      desk.endMove();
       return;
     }
-    final others = [for (final p in paths) ...desk.entries.where((e) => e.path == p)];
-    final box = context.findRenderObject() as RenderBox;
-    final origin = box.localToGlobal(Offset.zero);
-    final at = d.offset;
-    final choice = await showMenu<String>(
-      context: context,
-      position: RelativeRect.fromLTRB(at.dx + 40, at.dy + 40, at.dx + 40, at.dy + 40),
-      items: [
-        PopupMenuItem(value: 'stack', child: Text("'${entry.title}' 뒤에 겹치기")),
-        const PopupMenuItem(value: 'binder', child: Text('바인더 만들기')),
-        const PopupMenuItem(value: 'move', child: Text('위에 올려놓기만')),
-        const PopupMenuDivider(),
-        const PopupMenuItem(value: 'cancel', child: Text('취소')),
-      ],
-    );
-    switch (choice) {
-      case 'stack':
-        await a.stackOnto(entry, paths);
-      case 'binder':
-        await a.makeBinder([entry, ...others]);
-      case 'move':
-        final grabbed = others.firstOrNull;
-        if (grabbed == null) return;
-        final target = desk.positionOf(entry) + (at - origin);
-        desk.movePathsBy(paths, target - desk.positionOf(grabbed));
-        desk.bringToFront(paths.reversed.toList());
-        desk.endMove();
-    }
+    await widget.actions(context).stackOnto(entry, paths);
   }
 
   @override
@@ -447,7 +482,9 @@ class _DeskItemState extends State<_DeskItem> {
       onAcceptWithDetails: _onDropOnto,
       builder: (context, candidates, _) => Listener(
         onPointerDown: _onPointerDown,
+        onPointerUp: _onPointerUp,
         child: Draggable<DeskDragData>(
+          onDragStarted: () => _pendingDeselect = false,
           data: DeskDragData(selected ? paths : [entry.path]),
           feedback: Material(
             color: Colors.transparent,
@@ -457,6 +494,19 @@ class _DeskItemState extends State<_DeskItem> {
                 clipBehavior: Clip.none,
                 children: [
                   DeskItemCard(entry: entry, size: size, selected: true),
+                  Positioned(
+                    left: -6,
+                    top: -6,
+                    child: _ModifierBuilder(
+                      builder: (copy, _) => copy
+                          ? const CircleAvatar(
+                              radius: 12,
+                              backgroundColor: Color(0xFF2E7D32),
+                              child: Icon(Icons.add, size: 16, color: Colors.white),
+                            )
+                          : const SizedBox(),
+                    ),
+                  ),
                   if (desk.selection.length > 1)
                     Positioned(
                       right: -6,
@@ -483,11 +533,62 @@ class _DeskItemState extends State<_DeskItem> {
             child: Tooltip(
               message: entry.fileName,
               waitDuration: const Duration(milliseconds: 900),
-              child: DeskItemCard(entry: entry, size: size, selected: selected, highlighted: candidates.isNotEmpty),
+              child: candidates.isEmpty
+                  ? DeskItemCard(entry: entry, size: size, selected: selected)
+                  : _ModifierBuilder(
+                      builder: (copy, shift) => DeskItemCard(
+                        entry: entry,
+                        size: size,
+                        selected: selected,
+                        highlighted: true,
+                        dropLabel: copy
+                            ? tr('여기에 복사')
+                            : shift
+                            ? tr('위에 놓기')
+                            : entry.isBinder
+                            ? tr('바인더에 넣기')
+                            : tr('겹치기'),
+                      ),
+                    ),
             ),
           ),
         ),
       ),
     );
+  }
+}
+
+/// Rebuilds when Ctrl (copy) or Shift is pressed or released, so drag
+/// feedback can show what a drop will do.
+class _ModifierBuilder extends StatefulWidget {
+  const _ModifierBuilder({required this.builder});
+  final Widget Function(bool copy, bool shift) builder;
+
+  @override
+  State<_ModifierBuilder> createState() => _ModifierBuilderState();
+}
+
+class _ModifierBuilderState extends State<_ModifierBuilder> {
+  bool _onKey(KeyEvent _) {
+    if (mounted) setState(() {});
+    return false;
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    HardwareKeyboard.instance.addHandler(_onKey);
+  }
+
+  @override
+  void dispose() {
+    HardwareKeyboard.instance.removeHandler(_onKey);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final k = HardwareKeyboard.instance;
+    return widget.builder(k.isControlPressed || k.isMetaPressed, k.isShiftPressed);
   }
 }

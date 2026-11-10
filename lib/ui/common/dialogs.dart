@@ -1,11 +1,14 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import '../../l10n/l10n.dart';
 
 Future<String?> promptText(
   BuildContext context, {
   required String title,
   String initial = '',
   String label = '',
-  String okLabel = '확인',
+  String? okLabel,
   int maxLines = 1,
 }) {
   final controller = TextEditingController(text: initial)
@@ -26,8 +29,8 @@ Future<String?> promptText(
         ),
       ),
       actions: [
-        TextButton(onPressed: () => Navigator.pop(context), child: const Text('취소')),
-        FilledButton(onPressed: () => Navigator.pop(context, controller.text), child: Text(okLabel)),
+        TextButton(onPressed: () => Navigator.pop(context), child: Text(tr('취소'))),
+        FilledButton(onPressed: () => Navigator.pop(context, controller.text), child: Text(okLabel ?? tr('확인'))),
       ],
     ),
   );
@@ -37,7 +40,7 @@ Future<bool> confirm(
   BuildContext context, {
   required String title,
   required String message,
-  String okLabel = '확인',
+  String? okLabel,
   bool destructive = false,
 }) async {
   final result = await showDialog<bool>(
@@ -46,11 +49,11 @@ Future<bool> confirm(
       title: Text(title),
       content: Text(message),
       actions: [
-        TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('취소')),
+        TextButton(onPressed: () => Navigator.pop(context, false), child: Text(tr('취소'))),
         FilledButton(
           style: destructive ? FilledButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.error) : null,
           onPressed: () => Navigator.pop(context, true),
-          child: Text(okLabel),
+          child: Text(okLabel ?? tr('확인')),
         ),
       ],
     ),
@@ -89,10 +92,17 @@ Future<T?> runBusy<T>(BuildContext context, String label, Future<T> Function() t
 }
 
 void showError(BuildContext context, Object error) {
-  final msg = error is StateError ? error.message : '$error';
-  ScaffoldMessenger.maybeOf(
-    context,
-  )?.showSnackBar(SnackBar(content: Text('오류: $msg'), backgroundColor: Theme.of(context).colorScheme.error));
+  final msg = switch (error) {
+    StateError(:final message) => message,
+    FileSystemException(:final path) => tr(
+      '파일을 사용 중이라 처리하지 못했습니다{name}. 다른 프로그램(PDF 뷰어, OneDrive 동기화 등)에서 열려 있지 않은지 확인한 뒤 다시 시도하세요.',
+      {'name': path == null ? '' : ': ${path.split(RegExp(r'[\\/]')).last}'},
+    ),
+    _ => '$error',
+  };
+  ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+    SnackBar(content: Text(tr('오류: {msg}', {'msg': msg})), backgroundColor: Theme.of(context).colorScheme.error),
+  );
 }
 
 void showInfo(BuildContext context, String message) {

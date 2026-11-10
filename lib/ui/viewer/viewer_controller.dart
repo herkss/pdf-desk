@@ -3,13 +3,13 @@ import 'dart:convert';
 import 'dart:ui';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart' show Colors, TextDirection, TextPainter, TextSpan;
+import 'package:flutter/material.dart' show Colors, TextDirection, TextPainter, TextSpan, TextStyle;
 import 'package:pdfrx/pdfrx.dart';
 
 import '../../models/annotation.dart';
 import '../../services/pdf_ops.dart';
 import '../../services/storage.dart';
-import '../common/annotation_painter.dart' show annotationTextStyle;
+import '../common/annotation_painter.dart' show textStyleOf;
 
 enum Tool { select, pen, marker, line, arrow, rect, ellipse, text, sticky, stamp, eraser }
 
@@ -21,6 +21,11 @@ const annotationColors = [
   Color(0xFFFB8C00), // orange
   Color(0xFF8E24AA), // purple
   Color(0xFFFDD835), // yellow
+  Color(0xFFEC407A), // pink
+  Color(0xFF00ACC1), // cyan
+  Color(0xFF6D4C41), // brown
+  Color(0xFF9E9E9E), // gray
+  Color(0xFFFFFFFF), // white
 ];
 
 const stickyColors = [Color(0xFFFFF176), Color(0xFFFFCC80), Color(0xFFA5D6A7), Color(0xFF90CAF9), Color(0xFFF48FB1)];
@@ -48,6 +53,16 @@ class ViewerController extends ChangeNotifier {
   Color stickyColor = stickyColors.first;
   double strokeWidth = 2;
   double fontSize = 14;
+
+  /// Style for new shapes and text boxes.
+  Color? fill;
+  LineStyle lineStyle = LineStyle.solid;
+  String? fontFamily;
+  bool bold = false;
+  bool italic = false;
+
+  /// Colors picked from the full palette, newest first.
+  final recentColors = <Color>[];
   bool showAnnotations = true;
 
   final selectedIds = <String>{};
@@ -114,6 +129,20 @@ class ViewerController extends ChangeNotifier {
   void checkpoint() {
     _undo.add(_snapshot());
     if (_undo.length > 200) _undo.removeAt(0);
+    _redo.clear();
+  }
+
+  String? _editStart;
+
+  /// Groups a series of [editSelected] calls into one undo step; nothing is
+  /// recorded if nothing changed.
+  void beginEdit() => _editStart = _snapshot();
+
+  void endEdit() {
+    final start = _editStart;
+    _editStart = null;
+    if (start == null || start == _snapshot()) return;
+    _undo.add(start);
     _redo.clear();
   }
 
@@ -255,9 +284,65 @@ class ViewerController extends ChangeNotifier {
   void setFontSize(double s) {
     fontSize = s;
     _applyToSelection((a) {
-      if (a.type == AnnotationType.text || a.type == AnnotationType.sticky) a.fontSize = s;
+      if (!a.hasText) return;
+      a.fontSize = s;
+      _fitText(a);
     });
     notifyListeners();
+  }
+
+  void setFill(Color? f) {
+    fill = f;
+    _applyToSelection((a) {
+      if (a.canFill && a.type != AnnotationType.sticky) a.fill = f;
+    });
+    notifyListeners();
+  }
+
+  void setLineStyle(LineStyle s) {
+    lineStyle = s;
+    _applyToSelection((a) {
+      if (!a.isBoxed && a.type != AnnotationType.marker) a.lineStyle = s;
+    });
+    notifyListeners();
+  }
+
+  void setFont({String? family, bool? bold, bool? italic}) {
+    if (family != null) fontFamily = family;
+    if (bold != null) this.bold = bold;
+    if (italic != null) this.italic = italic;
+    _applyToSelection((a) {
+      if (!a.hasText) return;
+      if (family != null) a.fontFamily = family;
+      if (bold != null) a.bold = bold;
+      if (italic != null) a.italic = italic;
+      _fitText(a);
+    });
+    notifyListeners();
+  }
+
+  /// Text boxes grow or shrink to their text when the font changes.
+  void _fitText(Annotation a) {
+    if (a.type != AnnotationType.text) return;
+    final size = measureText(a);
+    a.points = [a.points.first, a.points.first + Offset(size.width, size.height)];
+  }
+
+  void rememberColor(Color c) {
+    recentColors
+      ..removeWhere((x) => x.toARGB32() == c.toARGB32())
+      ..insert(0, c);
+    if (recentColors.length > 10) recentColors.removeLast();
+  }
+
+  /// Changes selected annotations as the properties dialog is edited, between
+  /// [beginEdit] and [endEdit].
+  void editSelected(void Function(Annotation) f) {
+    for (final a in selected) {
+      f(a);
+      _fitText(a);
+    }
+    changed();
   }
 
   void _applyToSelection(void Function(Annotation) f) {
@@ -372,19 +457,52 @@ class ViewerController extends ChangeNotifier {
     points: [at],
     color: type == AnnotationType.marker ? markerColor : color,
     strokeWidth: type == AnnotationType.marker ? (strokeWidth * 6).clamp(8, 30).toDouble() : strokeWidth,
+    lineStyle: type == AnnotationType.marker ? LineStyle.solid : lineStyle,
   );
 
+  Annotation newShape(AnnotationType type, int page, Offset at) => Annotation(
+    type: type,
+    page: page,
+    points: [at, at],
+    color: color,
+    strokeWidth: strokeWidth,
+    lineStyle: lineStyle,
+    fill: type == AnnotationType.rect || type == AnnotationType.ellipse ? fill : null,
+  );
+
+  Annotation newText(int page, Offset at, String text) {
+    final a = Annotation(
+      type: AnnotationType.text,
+      page: page,
+      points: [at, at],
+      color: color,
+      fill: fill,
+      text: text,
+      fontSize: fontSize,
+      fontFamily: fontFamily,
+      bold: bold,
+      italic: italic,
+    );
+    _fitText(a);
+    return a;
+  }
+
   Annotation newSticky(int page, Offset at, String text) {
-    final h = _textHeight(text, 140 - 8, fontSize) + 8;
-    return Annotation(
+    final a = Annotation(
       type: AnnotationType.sticky,
       page: page,
-      points: [at, at + Offset(140, h.clamp(40, 600))],
+      points: [at, at],
       color: Colors.black87,
       fill: stickyColor,
       text: text,
       fontSize: fontSize,
+      fontFamily: fontFamily,
+      bold: bold,
+      italic: italic,
     );
+    final h = _textHeight(text, 140 - 8, textStyleOf(a)) + 8;
+    a.points = [at, at + Offset(140, h.clamp(40, 600))];
+    return a;
   }
 
   @override
@@ -397,22 +515,22 @@ class ViewerController extends ChangeNotifier {
   }
 }
 
-TextPainter _layout(String text, double size, double maxWidth) => TextPainter(
-  text: TextSpan(text: text, style: annotationTextStyle(size)),
+TextPainter _layout(String text, TextStyle style, double maxWidth) => TextPainter(
+  text: TextSpan(text: text, style: style),
   textDirection: TextDirection.ltr,
 )..layout(maxWidth: maxWidth);
 
-double _textHeight(String text, double width, double size) {
-  final tp = _layout(text, size, width);
+double _textHeight(String text, double width, TextStyle style) {
+  final tp = _layout(text, style, width);
   final h = tp.height;
   tp.dispose();
   return h;
 }
 
-/// Size of a text box that fits [text] on one line per paragraph, capped at
-/// [maxWidth].
-Size measureText(String text, double size, {double maxWidth = 400}) {
-  final tp = _layout(text, size, maxWidth);
+/// Size of a text box that fits [a]'s text on one line per paragraph, capped
+/// at [maxWidth].
+Size measureText(Annotation a, {double maxWidth = 400}) {
+  final tp = _layout(a.text, textStyleOf(a), maxWidth);
   final s = Size(tp.width.clamp(10, maxWidth) + 6, tp.height + 4);
   tp.dispose();
   return s;
