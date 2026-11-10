@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 
 import '../../l10n/l10n.dart';
@@ -5,6 +7,22 @@ import '../../l10n/manual.dart';
 import 'app_theme.dart';
 
 const appVersion = '1.2.0';
+const appAuthor = '허경수';
+const appWebsite = 'www.herks.co.kr';
+
+/// Opens [url] in the default browser.
+Future<void> openWebsite(String url) async {
+  final full = url.startsWith('http') ? url : 'https://$url';
+  try {
+    if (Platform.isWindows) {
+      await Process.run('rundll32', ['url.dll,FileProtocolHandler', full]);
+    } else {
+      await Process.run(Platform.isMacOS ? 'open' : 'xdg-open', [full]);
+    }
+  } catch (_) {
+    // No browser to open; the address is shown anyway.
+  }
+}
 
 /// 프로그램 정보: icon, version, what it is, and the open-source licenses.
 Future<void> showAbout(BuildContext context) => showDialog<void>(
@@ -29,10 +47,39 @@ Future<void> showAbout(BuildContext context) => showDialog<void>(
             textAlign: TextAlign.center,
             style: TextStyle(color: context.ink2, height: 1.4),
           ),
+          const SizedBox(height: 16),
+          Text(
+            tr('제작: {name}', {'name': appAuthor}),
+            style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: context.ink),
+          ),
+          const SizedBox(height: 4),
+          InkWell(
+            borderRadius: BorderRadius.circular(6),
+            onTap: () => openWebsite(appWebsite),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.language, size: 15, color: Theme.of(context).colorScheme.primary),
+                  const SizedBox(width: 4),
+                  Text(
+                    appWebsite,
+                    style: TextStyle(
+                      fontSize: 13.5,
+                      color: Theme.of(context).colorScheme.primary,
+                      decoration: TextDecoration.underline,
+                      decorationColor: Theme.of(context).colorScheme.primary,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
           const SizedBox(height: 14),
           Text(tr('PDF 엔진: PDFium (pdfrx) · 화면: Flutter'), style: TextStyle(fontSize: 12, color: context.ink3)),
           const SizedBox(height: 4),
-          Text('© 2026 PDF Desk', style: TextStyle(fontSize: 12, color: context.ink3)),
+          Text('© 2026 $appAuthor', style: TextStyle(fontSize: 12, color: context.ink3)),
         ],
       ),
     ),
@@ -42,6 +89,7 @@ Future<void> showAbout(BuildContext context) => showDialog<void>(
           context: context,
           applicationName: 'PDF Desk',
           applicationVersion: appVersion,
+          applicationLegalese: '© 2026 $appAuthor · $appWebsite',
           applicationIcon: Padding(
             padding: const EdgeInsets.all(8),
             child: Image.asset('assets/app_icon.png', width: 64, height: 64),

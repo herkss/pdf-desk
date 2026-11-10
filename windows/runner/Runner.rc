@@ -89,11 +89,11 @@ BEGIN
     BEGIN
         BLOCK "040904e4"
         BEGIN
-            VALUE "CompanyName", "com.pdfdesk" "\0"
+            VALUE "CompanyName", "herks.co.kr" "\0"
             VALUE "FileDescription", "PDF Desk" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
             VALUE "InternalName", "pdf_desk" "\0"
-            VALUE "LegalCopyright", "Copyright (C) 2026 com.pdfdesk. All rights reserved." "\0"
+            VALUE "LegalCopyright", "Copyright (C) 2026 herks.co.kr (www.herks.co.kr)" "\0"
             VALUE "OriginalFilename", "pdf_desk.exe" "\0"
             VALUE "ProductName", "PDF Desk" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"

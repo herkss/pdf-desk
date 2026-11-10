@@ -25,6 +25,7 @@ const trEn = <String, String>{
   '버전 {v}': 'Version {v}',
   '종이 문서를 책상 위에 펼쳐 놓듯 PDF를 다루는 문서 관리 프로그램입니다. 겹치기·펼치기·바인더, 주석과 도장, 가상 프린터를 지원합니다.':
       'A document manager that handles PDFs like paper spread on a desk: stacking, spreading and binders, annotations and stamps, and a virtual printer.',
+  '제작: {name}': 'Made by {name}',
   'PDF 엔진: PDFium (pdfrx) · 화면: Flutter': 'PDF engine: PDFium (pdfrx) · UI: Flutter',
   '오픈 소스 라이선스': 'Open-source licenses',
   '닫기': 'Close',
